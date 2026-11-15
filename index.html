@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EasyMusic — accords & transposition</title>
+    <meta name="description" content="Trouvez les accords de guitare de n'importe quelle chanson et transposez-la dans la tessiture de votre voix." />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <h1>🎸 EasyMusic</h1>
+      <p class="tagline">Les accords de guitare de n'importe quelle chanson, transposés pour <em>votre</em> voix.</p>
+    </header>
+
+    <main>
+      <!-- 1. Chanson -->
+      <section class="card" id="step-song">
+        <h2><span class="num">1</span> Choisissez une chanson</h2>
+        <label class="drop" id="drop">
+          <input type="file" id="file" accept="audio/*,video/*" hidden />
+          <span class="drop-icon">🎵</span>
+          <span><strong>Déposez un fichier audio</strong> ou cliquez pour parcourir</span>
+          <small>MP3, WAV, M4A, OGG, FLAC… L'analyse se fait entièrement dans votre navigateur.</small>
+        </label>
+        <div id="progress" class="progress" hidden>
+          <div class="bar"><div class="fill"></div></div>
+          <span class="label"></span>
+        </div>
+        <div id="player-wrap" hidden>
+          <div class="song-title" id="song-title"></div>
+          <audio id="player" controls preload="auto"></audio>
+          <div class="song-meta" id="song-meta"></div>
+        </div>
+      </section>
+
+      <!-- 2. Voix -->
+      <section class="card" id="step-voice">
+        <h2><span class="num">2</span> Votre voix</h2>
+        <p class="hint">Faites le test au micro, ou choisissez votre type de voix.</p>
+        <div class="voice-grid">
+          <div class="mic-box">
+            <button id="mic-btn" class="btn primary">🎤 Tester ma voix</button>
+            <p class="hint small" id="mic-help">
+              Chantez « Ah » de votre note la plus <strong>grave</strong> à votre note la plus <strong>aiguë</strong>
+              (confortables), en glissant lentement. Puis cliquez sur « Terminer ».
+            </p>
+            <div class="live-note" id="live-note">—</div>
+            <div class="small" id="mic-range"></div>
+          </div>
+          <div>
+            <div class="presets" id="presets"></div>
+          </div>
+        </div>
+        <div class="range-edit">
+          <label>Ma note la plus grave <select id="voice-low"></select></label>
+          <label>Ma note la plus aiguë <select id="voice-high"></select></label>
+        </div>
+      </section>
+
+      <!-- 3. Transposition -->
+      <section class="card" id="step-transpose">
+        <h2><span class="num">3</span> Transposition</h2>
+        <div class="range-edit">
+          <label>Note la plus grave de la mélodie <select id="song-low"></select></label>
+          <label>Note la plus aiguë de la mélodie <select id="song-high"></select></label>
+        </div>
+        <p class="hint small" id="song-range-hint">Chargez une chanson pour estimer automatiquement la tessiture de la mélodie.</p>
+        <div id="range-viz" class="range-viz"></div>
+        <div class="transpose-row">
+          <button class="btn" id="t-minus" aria-label="Descendre d'un demi-ton">−</button>
+          <div class="t-value"><span id="t-value">0</span><small>demi-tons</small></div>
+          <button class="btn" id="t-plus" aria-label="Monter d'un demi-ton">+</button>
+          <button class="btn" id="t-auto">✨ Adapter à ma voix</button>
+        </div>
+        <p class="recommend" id="recommend"></p>
+        <div class="apply-row">
+          <button class="btn primary" id="apply-audio" disabled>🔊 Transposer l'audio</button>
+          <a class="btn" id="download" hidden>⬇️ Télécharger</a>
+          <span class="small" id="audio-state"></span>
+        </div>
+      </section>
+
+      <!-- 4. Accords -->
+      <section class="card" id="step-chords">
+        <h2><span class="num">4</span> Les accords</h2>
+        <div class="chord-toolbar">
+          <label>Capodastre <select id="capo"></select></label>
+          <label title="Remplace 7, maj7, sus… par des accords majeurs/mineurs simples"><input type="checkbox" id="simple" checked /> Accords simplifiés</label>
+          <label><input type="checkbox" id="flats" /> Écrire en bémols</label>
+          <span class="small" id="capo-hint"></span>
+          <button class="btn small-btn" id="copy">📋 Copier la grille</button>
+        </div>
+        <div class="now-playing">
+          <div><small>Maintenant</small><div class="big-chord" id="now-chord">—</div></div>
+          <div><small>Ensuite</small><div class="next-chord" id="next-chord">—</div></div>
+          <div id="now-diagram"></div>
+        </div>
+        <div class="timeline" id="timeline"><p class="hint">Les accords apparaîtront ici après l'analyse.</p></div>
+        <h3>Doigtés</h3>
+        <div class="diagrams" id="diagrams"></div>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        La détection automatique d'accords est une estimation : elle fonctionne au mieux sur des enregistrements clairs.
+        Utilisez uniquement des fichiers que vous avez le droit d'utiliser.
+      </p>
+    </footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

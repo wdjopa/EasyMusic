@@ -1,4 +1,4 @@
-import { analyzeInWorker, shiftInWorker } from './dsp/client';
+import { analyzeChannels, analyzeInWorker, shiftInWorker } from './dsp/client';
 import type { AnalysisResult } from './dsp/analyze';
 import type { ChordSegment } from './dsp/chords';
 import { rangeFromFrequencies } from './dsp/melody';
@@ -20,13 +20,16 @@ import {
   transposeKey,
   VOICE_TYPES,
 } from './music/theory';
+import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
 import { startMic, type MicSession } from './ui/mic';
+import { createPlayer, parseYouTubeId, YT_STATE, type YTPlayer } from './ui/youtube';
 import { encodeWav } from './ui/wav';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 // ---------------------------------------------------------------- état
 const state = {
+  source: 'file' as 'file' | 'youtube',
   file: null as File | null,
   buffer: null as AudioBuffer | null,
   analysis: null as AnalysisResult | null,
@@ -127,6 +130,10 @@ function setProgress(fraction: number | null, label = '') {
 
 async function loadFile(file: File) {
   state.file = file;
+  state.source = 'file';
+  stopListening(false);
+  yt?.pauseVideo();
+  player.hidden = false;
   try {
     setProgress(0.02, 'Décodage du fichier…');
     const ctx = new AudioContext();
@@ -145,19 +152,212 @@ async function loadFile(file: File) {
     $('song-meta').textContent = `${formatTime(buffer.duration)} · analyse en cours…`;
 
     const analysis = await analyzeInWorker(buffer, (f, l) => setProgress(f, l));
-    state.analysis = analysis;
-    if (analysis.melodyRange) {
-      state.songRange = { ...analysis.melodyRange };
-      state.songRangeEstimated = true;
-    }
-    state.capoManual = false;
     setProgress(null);
-    autoTranspose();
+    if (state.source !== 'file' || state.file !== file) return; // une autre source a été chargée entre-temps
+    state.analysis = null;
+    showAnalysis(analysis);
   } catch (err) {
     console.error(err);
     setProgress(1, `Impossible de lire ce fichier : ${(err as Error).message}`);
   }
 }
+
+// ---------------------------------------------------------------- YouTube
+let yt: YTPlayer | null = null;
+let ytState = -1;
+let recorder: TabRecorder | null = null;
+let liveTimer = 0;
+let liveBusy = false;
+
+document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
+  tab.onclick = () => {
+    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
+    $('panel-youtube').hidden = tab.dataset.tab !== 'youtube';
+    $('panel-file').hidden = tab.dataset.tab !== 'file';
+  };
+});
+
+$('yt-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  void loadYouTube($<HTMLInputElement>('yt-url').value);
+});
+
+function ytError(msg: string) {
+  $('yt-error').textContent = msg;
+}
+
+async function loadYouTube(url: string) {
+  ytError('');
+  const id = parseYouTubeId(url);
+  if (!id) return ytError("Ce lien ne ressemble pas à une vidéo YouTube.");
+  stopListening(false);
+  state.source = 'youtube';
+  state.file = null;
+  state.buffer = null;
+  state.analysis = null;
+  state.appliedSemitones = 0;
+  state.songRangeEstimated = false;
+  if (state.shiftedUrl) URL.revokeObjectURL(state.shiftedUrl);
+  state.shiftedUrl = null;
+  player.pause();
+  player.removeAttribute('src');
+  player.hidden = true;
+  $('timeline').innerHTML = '<p class="hint">Cliquez sur « Écouter et analyser » pour trouver les accords.</p>';
+  $('diagrams').innerHTML = '';
+  $('yt-wrap').hidden = false;
+  $('player-wrap').hidden = false;
+  $('song-title').textContent = 'Vidéo YouTube';
+  $('song-meta').textContent = '';
+  try {
+    if (yt) yt.loadVideoById(id);
+    else
+      yt = await createPlayer($('yt-player'), id, onYtState, (m) => {
+        ytError(m);
+        stopListening(false);
+      });
+    yt.pauseVideo();
+    $('listen').hidden = false;
+    $('listen-state').textContent = tabCaptureSupported()
+      ? ''
+      : "⚠️ Votre navigateur ne permet pas d'écouter l'onglet : utilisez Chrome ou Edge sur ordinateur.";
+    render();
+  } catch (err) {
+    ytError((err as Error).message);
+  }
+}
+
+function onYtState(s: number) {
+  ytState = s;
+  const title = yt?.getVideoData()?.title;
+  if (title && state.source === 'youtube') $('song-title').textContent = title;
+  if (s === YT_STATE.PLAYING && state.source === 'youtube' && state.appliedSemitones !== 0) {
+    // on ne joue pas deux sources à la fois
+    player.pause();
+  }
+  recorder?.setRecording(s === YT_STATE.PLAYING);
+  if (s === YT_STATE.ENDED && recorder) void finishListening();
+}
+
+$('listen-btn').addEventListener('click', () => {
+  if (recorder) void finishListening();
+  else void startListening();
+});
+
+async function startListening() {
+  if (!yt) return;
+  ytError('');
+  try {
+    yt.pauseVideo();
+    recorder = await startTabRecorder();
+  } catch (err) {
+    const e = err as Error;
+    ytError(e.name === 'NotAllowedError' ? 'Partage refusé : il faut partager cet onglet avec son audio.' : e.message);
+    return;
+  }
+  recorder.onEnded = () => void finishListening();
+  player.pause();
+  state.analysis = null;
+  state.appliedSemitones = 0;
+  player.hidden = true;
+  yt.unMute();
+  yt.seekTo(0, true);
+  yt.playVideo();
+  $('listen-btn').textContent = '⏹ Terminer l’écoute';
+  $('listen-btn').classList.add('recording');
+  liveTimer = window.setInterval(liveUpdate, 1000);
+}
+
+let lastLiveAnalysis = 0;
+function liveUpdate() {
+  if (!recorder || !yt) return;
+  const d = recorder.duration();
+  const v = yt.getCurrentTime();
+  const total = yt.getDuration();
+  $('level-fill').style.width = `${Math.min(100, recorder.level() * 140)}%`;
+  let msg = `Écoute : ${formatTime(d)}${total ? ` / ${formatTime(total)}` : ''}`;
+  if (ytState === YT_STATE.PLAYING && d > 3 && recorder.level() < 0.002)
+    msg += " — ⚠️ aucun son reçu : vérifiez que l'audio de l'onglet est partagé et que la vidéo n'est pas muette.";
+  else if (Math.abs(v - d) > 2.5) msg += ' — ⚠️ ne déplacez pas la lecture pendant l’écoute (publicité ?) : les accords risquent d’être décalés.';
+  $('listen-state').textContent = msg;
+  // analyse progressive toutes les ~8 s
+  if (!liveBusy && d > 6 && d - lastLiveAnalysis >= 8) {
+    liveBusy = true;
+    lastLiveAnalysis = d;
+    analyzeChannels(recorder.snapshot(), recorder.sampleRate)
+      .then((a) => {
+        if (!recorder) return;
+        showAnalysis(a);
+      })
+      .finally(() => (liveBusy = false));
+  }
+}
+
+function stopListening(keep: boolean): Float32Array[] | null {
+  clearInterval(liveTimer);
+  $('listen-btn').textContent = '🎧 Écouter et analyser';
+  $('listen-btn').classList.remove('recording');
+  $('level-fill').style.width = '0';
+  if (!recorder) return null;
+  const r = recorder;
+  recorder = null;
+  lastLiveAnalysis = 0;
+  const chans = r.stop();
+  return keep ? chans : null;
+}
+
+async function finishListening() {
+  const sr = recorder?.sampleRate ?? 48000;
+  const chans = stopListening(true);
+  if (!chans || chans[0].length < sr * 3) {
+    $('listen-state').textContent = 'Écoute trop courte : relancez et laissez jouer la chanson.';
+    return;
+  }
+  const buffer = new AudioBuffer({ length: chans[0].length, numberOfChannels: 2, sampleRate: sr });
+  buffer.copyToChannel(chans[0], 0);
+  buffer.copyToChannel(chans[1], 1);
+  state.buffer = buffer;
+  if (state.originalUrl) URL.revokeObjectURL(state.originalUrl);
+  state.originalUrl = URL.createObjectURL(encodeWav(chans, sr));
+  $('listen-state').textContent = `Écoute terminée (${formatTime(buffer.duration)}).`;
+  try {
+    const a = await analyzeChannels(chans.map((c) => c.slice()), sr, (f, l) => setProgress(f, l));
+    setProgress(null);
+    showAnalysis(a);
+  } catch (err) {
+    setProgress(1, `Erreur d'analyse : ${(err as Error).message}`);
+  }
+}
+
+/** Enregistre un résultat d'analyse et met l'interface à jour. */
+function showAnalysis(a: AnalysisResult) {
+  const first = !state.analysis;
+  state.analysis = a;
+  if (a.melodyRange && (first || state.songRangeEstimated)) {
+    state.songRange = { ...a.melodyRange };
+    state.songRangeEstimated = true;
+  }
+  if (first) state.capoManual = false;
+  autoTranspose();
+}
+
+// ---------------------------------------------------------------- lecture (fichier ou YouTube)
+/** Lecture de la vidéo YouTube d'origine (et non d'une version transposée). */
+const usingYt = () => state.source === 'youtube' && !!yt && state.appliedSemitones === 0;
+function mediaTime(): number {
+  return usingYt() ? yt!.getCurrentTime() : player.currentTime;
+}
+function mediaSeek(t: number) {
+  if (usingYt()) {
+    yt!.seekTo(t, true);
+    if (ytState !== YT_STATE.PLAYING) yt!.playVideo();
+  } else {
+    player.currentTime = t;
+    if (player.paused) void player.play();
+  }
+}
+player.addEventListener('play', () => {
+  if (state.source === 'youtube') yt?.pauseVideo();
+});
 
 // ---------------------------------------------------------------- test de voix
 let mic: MicSession | null = null;
@@ -320,11 +520,20 @@ async function applyAudio() {
   const target = state.semitones;
   const btn = $<HTMLButtonElement>('apply-audio');
   btn.disabled = true;
-  const t = player.currentTime;
-  const wasPlaying = !player.paused;
+  const t = mediaTime();
+  const wasPlaying = usingYt() ? ytState === YT_STATE.PLAYING : !player.paused;
   try {
     let url: string;
-    if (target === 0) {
+    if (target === 0 && state.source === 'youtube') {
+      // retour à la vidéo d'origine
+      state.appliedSemitones = 0;
+      player.pause();
+      player.hidden = true;
+      yt?.seekTo(t, true);
+      if (wasPlaying) yt?.playVideo();
+      render();
+      return;
+    } else if (target === 0) {
       url = state.originalUrl!;
     } else {
       setProgress(0, 'Transposition de l’audio…');
@@ -335,6 +544,8 @@ async function applyAudio() {
       state.shiftedUrl = url = URL.createObjectURL(blob);
     }
     state.appliedSemitones = target;
+    if (state.source === 'youtube') yt?.pauseVideo();
+    player.hidden = false;
     player.src = url;
     player.currentTime = t;
     if (wasPlaying) void player.play();
@@ -409,7 +620,9 @@ function render() {
         ? 'Lecture : version originale'
         : `Lecture : version transposée (${s > 0 ? '+' : ''}${s})`
       : 'L’audio n’est pas encore transposé.'
-    : '';
+    : state.source === 'youtube' && state.analysis
+      ? 'Terminez l’écoute de la vidéo pour pouvoir transposer l’audio.'
+      : '';
   const dl = $<HTMLAnchorElement>('download');
   dl.hidden = !(state.shiftedUrl && state.appliedSemitones !== 0);
   if (state.shiftedUrl) {
@@ -480,10 +693,7 @@ function renderTimeline() {
     }<span class="t">${formatTime(seg.start)}</span>`;
     el.title = seg.confidence < 0.6 ? 'Détection incertaine' : '';
     el.style.flexGrow = String(Math.min(4, Math.max(1, (seg.end - seg.start) / 2)));
-    el.onclick = () => {
-      player.currentTime = seg.start + 0.01;
-      if (player.paused) void player.play();
-    };
+    el.onclick = () => mediaSeek(seg.start + 0.01);
     tl.append(el);
   });
 }
@@ -518,7 +728,8 @@ function segmentAt(t: number, segs: ChordSegment[]): number {
 function updateNow() {
   const a = state.analysis;
   if (!a) return;
-  const idx = segmentAt(player.currentTime, segs);
+  const t = mediaTime();
+  const idx = segmentAt(t, segs);
   if (idx === state.currentIdx) return;
   state.currentIdx = idx;
   const f = flats();
@@ -526,7 +737,7 @@ function updateNow() {
   tl.querySelector('.chip.current')?.classList.remove('current');
   const el = tl.querySelector<HTMLElement>(`.chip[data-idx="${idx}"]`);
   el?.classList.add('current');
-  if (el && !player.paused) {
+  if (el && (usingYt() ? ytState === YT_STATE.PLAYING : !player.paused)) {
     const r = el.getBoundingClientRect();
     const tr = tl.getBoundingClientRect();
     if (r.top < tr.top || r.bottom > tr.bottom) tl.scrollTop += r.top - tr.top - 8;

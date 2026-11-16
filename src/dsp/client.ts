@@ -36,7 +36,11 @@ function call<T>(req: DistributiveOmit<WorkerRequest, 'id'>, onProgress?: Pendin
 
 export function analyzeInWorker(buffer: AudioBuffer, onProgress?: Pending['onProgress']): Promise<AnalysisResult> {
   const channels = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i).slice());
-  return call({ type: 'analyze', channels, sampleRate: buffer.sampleRate }, onProgress);
+  return analyzeChannels(channels, buffer.sampleRate, onProgress);
+}
+
+export function analyzeChannels(channels: Float32Array[], sampleRate: number, onProgress?: Pending['onProgress']): Promise<AnalysisResult> {
+  return call({ type: 'analyze', channels, sampleRate }, onProgress);
 }
 
 export function shiftInWorker(buffer: AudioBuffer, semitones: number, onProgress?: Pending['onProgress']): Promise<Float32Array[]> {

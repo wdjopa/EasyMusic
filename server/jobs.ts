@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { analyze, type AnalysisResult, type Progress } from '../src/dsp/analyze';
-import type { Catalogue, Song } from './catalogue';
+import type { Song } from './song';
 import { config } from './config';
 import { UserError, type VideoInfo } from './youtube';
 
@@ -14,6 +14,8 @@ export interface Job {
   label: string;
   error?: string;
   title?: string;
+  /** Résultat, gardé en mémoire uniquement (1 h), le temps que le navigateur le récupère. */
+  song?: Song;
   updatedAt: number;
 }
 
@@ -32,7 +34,6 @@ export class JobQueue {
   private running = 0;
 
   constructor(
-    private catalogue: Catalogue,
     private source: Source,
     private concurrency = config.concurrency,
   ) {}
@@ -41,10 +42,17 @@ export class JobQueue {
     return this.jobs.get(id);
   }
 
-  /** Crée une analyse, ou renvoie celle déjà en cours pour la même vidéo. */
+  /** Analyse récente (en cours ou terminée) pour cette vidéo, s'il y en a une. */
+  findByVideo(videoId: string): Job | undefined {
+    this.cleanup();
+    const j = this.byVideo.get(videoId);
+    return j && j.status !== 'error' ? j : undefined;
+  }
+
+  /** Crée une analyse, ou renvoie celle déjà en cours (ou récente) pour la même vidéo. */
   submit(videoId: string): Job {
-    const existing = this.byVideo.get(videoId);
-    if (existing && existing.status !== 'error') return existing;
+    const existing = this.findByVideo(videoId);
+    if (existing) return existing;
     const job: Job = { id: randomUUID(), videoId, status: 'queued', progress: 0, label: 'En attente…', updatedAt: Date.now() };
     this.jobs.set(job.id, job);
     this.byVideo.set(videoId, job);
@@ -92,11 +100,9 @@ export class JobQueue {
         author: info.author,
         duration: info.duration || analysis.duration,
         thumbnail: info.thumbnail,
-        addedAt: new Date().toISOString(),
         analysis,
       };
-      await this.catalogue.add(song);
-      this.update(job, { status: 'done', progress: 1, label: 'Terminé' });
+      this.update(job, { status: 'done', progress: 1, label: 'Terminé', song });
     } catch (e) {
       const err = e as Error;
       if (!(err instanceof UserError)) console.error(`Analyse ${job.videoId} :`, err.message);

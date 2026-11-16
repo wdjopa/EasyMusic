@@ -13,8 +13,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app /app
-ENV NODE_ENV=production PORT=8787 DATA_DIR=/data STATIC_DIR=/app/dist
-VOLUME /data
+ENV NODE_ENV=production PORT=8787 STATIC_DIR=/app/dist
 EXPOSE 8787
 # yt-dlp doit rester à jour : YouTube change souvent son fonctionnement
 CMD ["sh", "-c", "pip3 install -q -U --break-system-packages yt-dlp || true; exec node_modules/.bin/tsx server/index.ts"]

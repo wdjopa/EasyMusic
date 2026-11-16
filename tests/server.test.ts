@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -39,16 +39,14 @@ beforeAll(async () => {
   const yt = join(dir, 'yt-dlp');
   await writeFile(yt, FAKE_YTDLP(wav));
   await chmod(yt, 0o755);
-  Object.assign(process.env, { YTDLP_PATH: yt, DATA_DIR: dataDir, RATE_LIMIT_PER_HOUR: '5' });
+  Object.assign(process.env, { YTDLP_PATH: yt, RATE_LIMIT_PER_HOUR: '5', TMPDIR: dataDir });
+  await mkdir(dataDir, { recursive: true });
 
-  const { Catalogue } = await import('../server/catalogue');
   const { JobQueue } = await import('../server/jobs');
   const { createApp } = await import('../server/app');
   const { fetchInfo, downloadAudio } = await import('../server/youtube');
-  const catalogue = new Catalogue(dataDir);
-  await catalogue.load();
-  const queue = new JobQueue(catalogue, { fetchInfo, downloadAudio });
-  const handler = createApp({ catalogue, queue, rateLimitPerHour: 5 });
+  const queue = new JobQueue({ fetchInfo, downloadAudio });
+  const handler = createApp({ queue, rateLimitPerHour: 5 });
   server = createServer((q, r) => void handler(q, r));
   await new Promise<void>((r) => server.listen(0, r));
   const addr = server.address();
@@ -57,7 +55,7 @@ beforeAll(async () => {
 afterAll(() => server?.close());
 
 async function post(url: string) {
-  const r = await fetch(`${base}/api/songs`, { method: 'POST', body: JSON.stringify({ url }) });
+  const r = await fetch(`${base}/api/analyze`, { method: 'POST', body: JSON.stringify({ url }) });
   return { status: r.status, body: await r.json() };
 }
 async function waitJob(id: string) {
@@ -70,27 +68,21 @@ async function waitJob(id: string) {
 }
 
 describe('serveur', () => {
-  it('télécharge, analyse, ajoute au catalogue et ne garde pas l’audio', async () => {
+  it('télécharge, analyse, renvoie les accords et ne stocke rien sur disque', async () => {
     const { status, body } = await post('https://youtu.be/abcdefghijk');
     expect(status).toBe(202);
     const r = await waitJob(body.job.id);
     expect(r.job.status).toBe('done');
     expect(r.song.title).toBe('Chanson de test');
-    const names = r.song.analysis.segments.filter((s: { end: number; start: number }) => s.end - s.start > 1);
-    expect(names.length).toBeGreaterThanOrEqual(6);
+    const segs = r.song.analysis.segments.filter((s: { end: number; start: number }) => s.end - s.start > 1);
+    expect(segs.length).toBeGreaterThanOrEqual(6);
     expect(r.song.analysis.key).toEqual({ tonic: 0, mode: 'major' });
-
-    const cat = await (await fetch(`${base}/api/catalogue`)).json();
-    expect(cat.songs.map((s: { id: string }) => s.id)).toEqual(['abcdefghijk']);
-    expect(cat.songs[0].analysis).toBeUndefined();
-    // seul le JSON est stocké
-    expect(await readdir(join(dataDir, 'songs'))).toEqual(['abcdefghijk.json']);
-
-    // une deuxième demande répond directement depuis le catalogue
+    // le dossier temporaire du téléchargement a été supprimé
+    expect((await readdir(dataDir)).filter((f) => f.startsWith('easymusic-'))).toEqual([]);
+    // une deuxième demande récente répond directement, sans nouveau téléchargement
     const again = await post('https://www.youtube.com/watch?v=abcdefghijk');
     expect(again.status).toBe(200);
     expect(again.body.song.id).toBe('abcdefghijk');
-    expect((await fetch(`${base}/api/songs/abcdefghijk`)).status).toBe(200);
   });
 
   it('rejette les liens invalides', async () => {

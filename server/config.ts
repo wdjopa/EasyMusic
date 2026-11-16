@@ -4,8 +4,6 @@ const env = process.env;
 
 export const config = {
   port: Number(env.PORT ?? 8787),
-  /** Dossier des données (catalogue). */
-  dataDir: resolve(env.DATA_DIR ?? 'data'),
   /** Dossier du site compilé (production). */
   staticDir: resolve(env.STATIC_DIR ?? 'dist'),
   ytDlp: env.YTDLP_PATH ?? 'yt-dlp',

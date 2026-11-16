@@ -1,16 +1,13 @@
 // Client de l'API du serveur (catalogue et analyses YouTube).
 import type { AnalysisResult } from '../dsp/analyze';
 
-export interface SongSummary {
+/** Résultat d'analyse renvoyé par le serveur. */
+export interface Song {
   id: string;
   title: string;
   author: string;
   duration: number;
   thumbnail: string;
-  addedAt: string;
-  key: AnalysisResult['key'];
-}
-export interface Song extends Omit<SongSummary, 'key'> {
   analysis: AnalysisResult;
 }
 interface Job {
@@ -34,20 +31,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export async function fetchCatalogue(): Promise<SongSummary[]> {
-  return (await req<{ songs: SongSummary[] }>('/api/catalogue')).songs;
-}
-
-export async function fetchSong(id: string): Promise<Song | null> {
-  try {
-    return (await req<{ song: Song }>(`/api/songs/${id}`)).song;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Demande l'analyse d'une vidéo (ou la récupère directement si elle est déjà au catalogue)
+ * Demande au serveur d'analyser une vidéo (réponse immédiate si elle vient d'être analysée)
  * et suit sa progression jusqu'au résultat.
  */
 export async function analyzeVideo(
@@ -55,13 +40,13 @@ export async function analyzeVideo(
   onProgress: (fraction: number, label: string) => void,
   signal?: { cancelled: boolean },
 ): Promise<Song> {
-  const first = await req<{ status: string; song?: Song; job?: Job }>('/api/songs', {
+  const first = await req<{ song?: Song; job: Job }>('/api/analyze', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ url }),
   });
   if (first.song) return first.song;
-  let job = first.job!;
+  let job = first.job;
   for (;;) {
     if (signal?.cancelled) throw new Error('annulé');
     onProgress(job.progress, job.label);

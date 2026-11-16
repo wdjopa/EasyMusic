@@ -20,7 +20,8 @@ import {
   transposeKey,
   VOICE_TYPES,
 } from './music/theory';
-import { analyzeVideo, fetchCatalogue, type SongSummary } from './ui/api';
+import { analyzeVideo } from './ui/api';
+import { getSong, listSongs, removeSong, savePrefs, saveSong, type LibrarySong } from './ui/library';
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
 import { startMic, type MicSession } from './ui/mic';
 import { createPlayer, parseYouTubeId, YT_STATE, type YTPlayer } from './ui/youtube';
@@ -132,6 +133,7 @@ function setProgress(fraction: number | null, label = '') {
 async function loadFile(file: File) {
   state.file = file;
   state.source = 'file';
+  currentSongId = null;
   analysisToken.cancelled = true;
   stopListening(false);
   yt?.pauseVideo();
@@ -174,20 +176,18 @@ let liveBusy = false;
 function showTab(name: string) {
   document.querySelectorAll<HTMLElement>('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll<HTMLElement>('.tab-panel').forEach((p) => (p.hidden = p.id !== `panel-${name}`));
-  if (name === 'catalogue') void refreshCatalogue();
+  if (name === 'catalogue') refreshCatalogue();
 }
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => (tab.onclick = () => showTab(tab.dataset.tab!)));
 
 // ---------------------------------------------------------------- catalogue
-let catalogue: SongSummary[] = [];
-async function refreshCatalogue() {
-  try {
-    catalogue = await fetchCatalogue();
-    $('cat-count').textContent = catalogue.length ? `(${catalogue.length})` : '';
-    renderCatalogue();
-  } catch (e) {
-    $('catalogue').innerHTML = `<p class="hint">${escapeHtml((e as Error).message)}</p>`;
-  }
+// Stocké dans le navigateur de l'utilisateur (pas de compte).
+let catalogue: LibrarySong[] = [];
+let currentSongId: string | null = null;
+function refreshCatalogue() {
+  catalogue = listSongs();
+  $('cat-count').textContent = catalogue.length ? `(${catalogue.length})` : '';
+  renderCatalogue();
 }
 function escapeHtml(t: string) {
   return t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -198,20 +198,33 @@ function renderCatalogue() {
   const box = $('catalogue');
   if (!list.length) {
     box.innerHTML = `<p class="hint">${
-      catalogue.length ? 'Aucune chanson ne correspond.' : 'Le catalogue est vide : analysez une première vidéo YouTube !'
+      catalogue.length
+        ? 'Aucune chanson ne correspond.'
+        : 'Votre catalogue est vide : analysez une première vidéo YouTube ! Il est enregistré dans ce navigateur.'
     }</p>`;
     return;
   }
   box.innerHTML = list
     .map(
-      (s) => `<button class="song" data-id="${s.id}">
+      (s) => `<div class="song-wrap"><button class="song" data-id="${s.id}">
         <img src="${s.thumbnail}" alt="" loading="lazy" />
         <span class="info"><span class="t">${escapeHtml(s.title)}</span>
         <span class="a">${escapeHtml(s.author)}</span>
-        <span class="a">${keyName(s.key).split(' (')[0]} · ${formatTime(s.duration)}</span></span>
-      </button>`,
+        <span class="a">${keyName(s.prefs ? transposeKey(s.analysis.key, s.prefs.semitones) : s.analysis.key).split(' (')[0]}${
+          s.prefs?.semitones ? ` (${s.prefs.semitones > 0 ? '+' : ''}${s.prefs.semitones})` : ''
+        } · ${formatTime(s.duration)}</span></span>
+      </button><button class="del" data-del="${s.id}" title="Retirer du catalogue" aria-label="Retirer du catalogue">✕</button></div>`,
     )
     .join('');
+  box.querySelectorAll<HTMLButtonElement>('.del').forEach((b) => {
+    b.onclick = () => {
+      const song = catalogue.find((x) => x.id === b.dataset.del);
+      if (song && confirm(`Retirer « ${song.title} » du catalogue ?`)) {
+        removeSong(song.id);
+        refreshCatalogue();
+      }
+    };
+  });
   box.querySelectorAll<HTMLButtonElement>('.song').forEach((b) => {
     b.onclick = () => {
       showTab('youtube');
@@ -270,14 +283,22 @@ async function loadYouTube(url: string) {
   } catch (err) {
     ytError((err as Error).message);
   }
+  currentSongId = id;
+  // déjà dans le catalogue du navigateur : rien à demander au serveur
+  const saved = getSong(id);
+  if (saved) {
+    saveSong(saved); // met à jour la date d'ouverture
+    openSong(saved);
+    refreshCatalogue();
+    return;
+  }
   try {
     const song = await analyzeVideo(id, (f, l) => !token.cancelled && setProgress(f, l), token);
     if (token.cancelled) return;
     setProgress(null);
-    $('song-title').textContent = song.title;
-    state.analysis = null;
-    showAnalysis(song.analysis);
-    void refreshCatalogue();
+    saveSong(song);
+    openSong(song);
+    refreshCatalogue();
   } catch (err) {
     if (token.cancelled) return;
     setProgress(null);
@@ -291,6 +312,33 @@ async function loadYouTube(url: string) {
   }
 }
 let analysisToken = { cancelled: false };
+
+/** Affiche une chanson et restaure les réglages enregistrés (transposition, capo…). */
+function openSong(song: Pick<LibrarySong, 'title' | 'analysis' | 'prefs'>) {
+  $('song-title').textContent = song.title;
+  state.analysis = null;
+  restoringPrefs = true;
+  showAnalysis(song.analysis);
+  const p = song.prefs;
+  if (p) {
+    state.simple = p.simple;
+    state.flats = p.flats;
+    state.capo = p.capo;
+    state.capoManual = true;
+    setSemitones(p.semitones, p.octave);
+  }
+  restoringPrefs = false;
+}
+let restoringPrefs = false;
+let prefsTimer = 0;
+/** Enregistre (avec un léger délai) les réglages de la chanson YouTube affichée. */
+function persistPrefs() {
+  if (restoringPrefs || state.source !== 'youtube' || !currentSongId || !state.analysis) return;
+  const id = currentSongId;
+  const prefs = { semitones: state.semitones, octave: state.octave, capo: state.capo, simple: state.simple, flats: state.flats };
+  clearTimeout(prefsTimer);
+  prefsTimer = window.setTimeout(() => savePrefs(id, prefs), 300);
+}
 
 function onYtState(s: number) {
   ytState = s;
@@ -389,6 +437,19 @@ async function finishListening() {
     const a = await analyzeChannels(chans.map((c) => c.slice()), sr, (f, l) => setProgress(f, l));
     setProgress(null);
     showAnalysis(a);
+    if (state.source === 'youtube' && currentSongId) {
+      const id = currentSongId;
+      saveSong({
+        id,
+        title: $('song-title').textContent || 'Vidéo YouTube',
+        author: '',
+        duration: a.duration,
+        thumbnail: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+        analysis: a,
+      });
+      persistPrefs();
+      refreshCatalogue();
+    }
   } catch (err) {
     setProgress(1, `Erreur d'analyse : ${(err as Error).message}`);
   }
@@ -633,6 +694,7 @@ function render() {
   const a = state.analysis;
   segs = displaySegments();
   simpleBox.checked = state.simple;
+  persistPrefs();
 
   // voix
   voiceLow.value = String(state.voice.low);
@@ -826,7 +888,7 @@ function tick() {
 requestAnimationFrame(tick);
 
 render();
-void refreshCatalogue();
+refreshCatalogue();
 const initial = new URLSearchParams(location.search).get('v');
 if (initial && parseYouTubeId(initial)) {
   $<HTMLInputElement>('yt-url').value = `https://www.youtube.com/watch?v=${initial}`;

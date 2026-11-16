@@ -3,8 +3,7 @@ import { stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import { parseYouTubeId } from '../src/shared/youtubeId';
-import type { Catalogue } from './catalogue';
-import type { JobQueue } from './jobs';
+import type { Job, JobQueue } from './jobs';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -16,6 +15,8 @@ const MIME: Record<string, string> = {
   '.json': 'application/json',
   '.webmanifest': 'application/manifest+json',
 };
+
+const publicJob = ({ song: _song, ...j }: Job) => j;
 
 function json(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -45,8 +46,8 @@ class RateLimiter {
   }
 }
 
-export function createApp(opts: { catalogue: Catalogue; queue: JobQueue; staticDir?: string; rateLimitPerHour: number }) {
-  const { catalogue, queue, staticDir } = opts;
+export function createApp(opts: { queue: JobQueue; staticDir?: string; rateLimitPerHour: number }) {
+  const { queue, staticDir } = opts;
   const limiter = new RateLimiter(opts.rateLimitPerHour);
 
   async function serveStatic(req: IncomingMessage, res: ServerResponse, path: string) {
@@ -77,32 +78,24 @@ export function createApp(opts: { catalogue: Catalogue; queue: JobQueue; staticD
     const url = new URL(req.url ?? '/', 'http://localhost');
     const path = url.pathname;
     try {
-      if (path === '/api/catalogue' && req.method === 'GET') return json(res, 200, { songs: catalogue.list() });
-
-      let m = path.match(/^\/api\/songs\/([\w-]{11})$/);
-      if (m && req.method === 'GET') {
-        const song = catalogue.get(m[1]);
-        return song ? json(res, 200, { song }) : json(res, 404, { error: 'Chanson absente du catalogue' });
-      }
-
-      if (path === '/api/songs' && req.method === 'POST') {
+      if (path === '/api/analyze' && req.method === 'POST') {
         const body = (await readBody(req)) as { url?: unknown };
         const id = typeof body.url === 'string' ? parseYouTubeId(body.url) : null;
         if (!id) return json(res, 400, { error: 'Lien YouTube invalide.' });
-        const song = catalogue.get(id);
-        if (song) return json(res, 200, { status: 'done', song });
+        // analyse récente ou en cours : pas de nouveau téléchargement, pas de quota consommé
+        const recent = queue.findByVideo(id);
+        if (recent) return json(res, recent.song ? 200 : 202, { job: publicJob(recent), song: recent.song });
         const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
         if (!limiter.allow(ip)) return json(res, 429, { error: 'Trop d’analyses demandées : réessayez dans une heure.' });
         const job = queue.submit(id);
-        return json(res, 202, { status: job.status, job });
+        return json(res, 202, { job: publicJob(job) });
       }
 
-      m = path.match(/^\/api\/jobs\/([\w-]+)$/);
+      const m = path.match(/^\/api\/jobs\/([\w-]+)$/);
       if (m && req.method === 'GET') {
         const job = queue.get(m[1]);
-        if (!job) return json(res, 404, { error: 'Tâche inconnue' });
-        const song = job.status === 'done' ? catalogue.get(job.videoId) : undefined;
-        return json(res, 200, { job, song });
+        if (!job) return json(res, 404, { error: 'Analyse inconnue ou expirée.' });
+        return json(res, 200, { job: publicJob(job), song: job.song });
       }
 
       if (path.startsWith('/api/')) return json(res, 404, { error: 'Introuvable' });

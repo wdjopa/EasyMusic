@@ -181,3 +181,11 @@ select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid 
   .song img { width: 120px; flex-shrink: 0; }
 }
 #analysis-state:empty { display: none; }
+
+.song-wrap { position: relative; display: flex; }
+.song-wrap .song { flex: 1; min-width: 0; }
+.del {
+  position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--muted); font-size: 0.8rem; line-height: 1;
+}
+.del:hover { color: #c0392b; border-color: #c0392b; }

@@ -7,10 +7,11 @@ L'analyse des fichiers se fait dans le navigateur ; celle des vidéos YouTube su
 
 1. **Trois sources** :
    - **une vidéo YouTube** (ordinateur et téléphone) : le serveur récupère la piste audio, trouve les accords,
-     puis **supprime l'audio**. Seuls les accords sont gardés, dans le **catalogue** partagé : une chanson déjà
-     analysée s'ouvre instantanément. La vidéo se lit dans le lecteur YouTube officiel, les accords défilent en même
-     temps. Lien partageable : `/?v=<identifiant>` ;
-   - **le catalogue** des chansons déjà analysées, avec recherche ;
+     **supprime l'audio** et renvoie les accords. La vidéo se lit dans le lecteur YouTube officiel, les accords
+     défilent en même temps. Lien partageable : `/?v=<identifiant>` ;
+   - **le catalogue** personnel, avec recherche : stocké dans le navigateur (localStorage, pas de compte), il garde
+     les accords et les réglages de chaque chanson (transposition, capo…). Une chanson du catalogue s'ouvre
+     instantanément, sans repasser par le serveur ;
    - **un fichier audio** (MP3, WAV, M4A…), analysé directement dans le navigateur.
 2. **Détection des accords**
    - chromagramme (énergie des 12 notes) sur les pics spectraux ;
@@ -36,14 +37,16 @@ npm test         # tests (algorithmes, serveur avec un faux yt-dlp)
 npm run build && npm start   # production : tout sur http://localhost:8787
 ```
 
-Ou avec Docker : `docker build -t easymusic . && docker run -p 8787:8787 -v easymusic-data:/data easymusic`
+Ou avec Docker : `docker build -t easymusic . && docker run -p 8787:8787 easymusic`
+
+Le serveur ne stocke rien sur disque : l'audio est supprimé après l'analyse et le résultat n'est gardé qu'une heure
+en mémoire (pour éviter de retélécharger une vidéo demandée plusieurs fois).
 
 ### Configuration du serveur (variables d'environnement)
 
 | Variable | Défaut | Rôle |
 | --- | --- | --- |
 | `PORT` | 8787 | Port HTTP |
-| `DATA_DIR` | `data` | Catalogue (un fichier JSON par chanson) |
 | `YTDLP_PATH` / `FFMPEG_PATH` | `yt-dlp` / `ffmpeg` | Chemins des outils |
 | `YTDLP_COOKIES` | — | Fichier de cookies YouTube, si YouTube bloque le serveur |
 | `YTDLP_EXTRA_ARGS` | — | Options supplémentaires de yt-dlp (ex. `--proxy http://…`) |
@@ -59,13 +62,12 @@ fournir des cookies (`YTDLP_COOKIES`, avec un compte secondaire : le compte peut
 jour (l'image Docker le met à jour à chaque démarrage). Sur ordinateur, l'app propose en secours d'analyser la
 vidéo en écoutant l'onglet.
 
-Télécharger depuis YouTube est contraire à ses conditions d'utilisation : EasyMusic ne conserve jamais l'audio,
-uniquement les accords.
+Télécharger depuis YouTube est contraire à ses conditions d'utilisation : EasyMusic ne conserve jamais l'audio.
 
 ## Structure
 
 ```
-server/       API (catalogue, file d'analyses, yt-dlp + ffmpeg)
+server/       API d'analyse (file d'attente, yt-dlp + ffmpeg), sans stockage
 src/
   dsp/        traitement du signal (FFT, chroma, accords, tonalité, YIN, mélodie, pitch-shift, worker)
   music/      théorie musicale (transposition, tessitures, capo) et doigtés de guitare

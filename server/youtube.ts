@@ -23,6 +23,10 @@ function baseArgs(): string[] {
 function friendlyError(stderr: string): Error {
   if (/not a bot|Sign in to confirm/i.test(stderr))
     return new Error('YouTube bloque temporairement le serveur (vérification anti-robot). Réessayez plus tard.');
+  if (/HTTP Error 403/i.test(stderr))
+    return new Error(
+      'YouTube a refusé le téléchargement (erreur 403). Sur le serveur : mettre yt-dlp à jour, installer Deno, ou fournir des cookies (voir le README).',
+    );
   if (/Private video|Video unavailable|This video is not available|removed/i.test(stderr))
     return new UserError('Vidéo indisponible ou privée.');
   if (/age/i.test(stderr) && /confirm/i.test(stderr)) return new UserError('Vidéo soumise à une limite d’âge : impossible de l’analyser.');

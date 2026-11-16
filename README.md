@@ -37,7 +37,7 @@ npm test         # tests (algorithmes, serveur avec un faux yt-dlp)
 npm run build && npm start   # production : tout sur http://localhost:8787
 ```
 
-Ou avec Docker : `docker build -t easymusic . && docker run -p 8787:8787 easymusic`
+Ou avec Docker : `docker build --load -t easymusic . && docker run -p 8787:8787 easymusic`
 
 Le serveur ne stocke rien sur disque : l'audio est supprimé après l'analyse et le résultat n'est gardé qu'une heure
 en mémoire (pour éviter de retélécharger une vidéo demandée plusieurs fois).
@@ -53,6 +53,14 @@ en mémoire (pour éviter de retélécharger une vidéo demandée plusieurs fois
 | `MAX_DURATION` | 900 | Durée maximale d'une vidéo (s) |
 | `CONCURRENCY` | 2 | Analyses simultanées |
 | `RATE_LIMIT_PER_HOUR` | 20 | Nouvelles analyses par IP et par heure |
+
+### En cas d'erreur 403 ou « not a bot »
+
+1. Mettre yt-dlp à jour : `brew upgrade yt-dlp`, `pip install -U "yt-dlp[default]"` ou `yt-dlp -U`.
+2. Installer Deno (`brew install deno`) : yt-dlp s'en sert pour résoudre les protections de YouTube.
+3. Tester directement : `yt-dlp -v -f bestaudio -o /tmp/test.%(ext)s "https://www.youtube.com/watch?v=…"`.
+4. Si ça bloque encore, utiliser les cookies du navigateur de la machine (sur un ordinateur personnel) :
+   `YTDLP_EXTRA_ARGS="--cookies-from-browser chrome" npm start`.
 
 ### YouTube bloque souvent les serveurs
 

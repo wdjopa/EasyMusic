@@ -18,8 +18,9 @@
       <section class="card" id="step-song">
         <h2><span class="num">1</span> Choisissez une chanson</h2>
         <div class="tabs" role="tablist">
-          <button class="tab active" data-tab="youtube" role="tab">▶️ Vidéo YouTube</button>
-          <button class="tab" data-tab="file" role="tab">📁 Fichier audio</button>
+          <button class="tab active" data-tab="youtube" role="tab">▶️ YouTube</button>
+          <button class="tab" data-tab="catalogue" role="tab">📚 Catalogue <span class="count" id="cat-count"></span></button>
+          <button class="tab" data-tab="file" role="tab">📁 Fichier</button>
         </div>
         <div class="tab-panel" id="panel-youtube">
           <form class="yt-form" id="yt-form">
@@ -28,6 +29,7 @@
           </form>
           <p class="small" id="yt-error"></p>
           <div class="yt-wrap" id="yt-wrap" hidden><div id="yt-player"></div></div>
+          <p class="small" id="analysis-state"></p>
           <div class="listen" id="listen" hidden>
             <button class="btn primary" id="listen-btn">🎧 Écouter et analyser</button>
             <div class="level" title="Niveau du son reçu"><div class="level-fill" id="level-fill"></div></div>
@@ -35,12 +37,14 @@
           </div>
           <details class="small how">
             <summary>Comment ça marche ?</summary>
-            La vidéo est lue dans le lecteur YouTube officiel. Pour l'analyser, EasyMusic écoute le son de cet onglet
-            pendant la lecture : votre navigateur vous demandera de <strong>partager cet onglet</strong> — choisissez-le
-            et laissez <strong>« Partager aussi l'audio de l'onglet »</strong> coché. L'écoute dure le temps de la
-            chanson ; les accords apparaissent au fur et à mesure. Rien n'est envoyé sur Internet.
-            Fonctionne sur Chrome et Edge pour ordinateur.
+            Collez le lien d'une vidéo : le serveur récupère sa piste audio, trouve les accords puis
+            <strong>supprime l'audio</strong> — seuls les accords sont gardés dans le catalogue. La vidéo se lit ensuite
+            dans le lecteur YouTube et les accords défilent en même temps. Une chanson déjà analysée s'ouvre instantanément.
           </details>
+        </div>
+        <div class="tab-panel" id="panel-catalogue" hidden>
+          <input type="search" id="cat-search" class="search" placeholder="Rechercher un titre ou un artiste…" />
+          <div class="catalogue" id="catalogue"><p class="hint">Chargement…</p></div>
         </div>
         <div class="tab-panel" id="panel-file" hidden>
         <label class="drop" id="drop">

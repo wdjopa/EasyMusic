@@ -20,6 +20,7 @@ import {
   transposeKey,
   VOICE_TYPES,
 } from './music/theory';
+import { analyzeVideo, fetchCatalogue, type SongSummary } from './ui/api';
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
 import { startMic, type MicSession } from './ui/mic';
 import { createPlayer, parseYouTubeId, YT_STATE, type YTPlayer } from './ui/youtube';
@@ -131,6 +132,7 @@ function setProgress(fraction: number | null, label = '') {
 async function loadFile(file: File) {
   state.file = file;
   state.source = 'file';
+  analysisToken.cancelled = true;
   stopListening(false);
   yt?.pauseVideo();
   player.hidden = false;
@@ -169,13 +171,57 @@ let recorder: TabRecorder | null = null;
 let liveTimer = 0;
 let liveBusy = false;
 
-document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
-  tab.onclick = () => {
-    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
-    $('panel-youtube').hidden = tab.dataset.tab !== 'youtube';
-    $('panel-file').hidden = tab.dataset.tab !== 'file';
-  };
-});
+function showTab(name: string) {
+  document.querySelectorAll<HTMLElement>('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll<HTMLElement>('.tab-panel').forEach((p) => (p.hidden = p.id !== `panel-${name}`));
+  if (name === 'catalogue') void refreshCatalogue();
+}
+document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => (tab.onclick = () => showTab(tab.dataset.tab!)));
+
+// ---------------------------------------------------------------- catalogue
+let catalogue: SongSummary[] = [];
+async function refreshCatalogue() {
+  try {
+    catalogue = await fetchCatalogue();
+    $('cat-count').textContent = catalogue.length ? `(${catalogue.length})` : '';
+    renderCatalogue();
+  } catch (e) {
+    $('catalogue').innerHTML = `<p class="hint">${escapeHtml((e as Error).message)}</p>`;
+  }
+}
+function escapeHtml(t: string) {
+  return t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+function renderCatalogue() {
+  const q = $<HTMLInputElement>('cat-search').value.trim().toLowerCase();
+  const list = catalogue.filter((s) => !q || `${s.title} ${s.author}`.toLowerCase().includes(q));
+  const box = $('catalogue');
+  if (!list.length) {
+    box.innerHTML = `<p class="hint">${
+      catalogue.length ? 'Aucune chanson ne correspond.' : 'Le catalogue est vide : analysez une première vidéo YouTube !'
+    }</p>`;
+    return;
+  }
+  box.innerHTML = list
+    .map(
+      (s) => `<button class="song" data-id="${s.id}">
+        <img src="${s.thumbnail}" alt="" loading="lazy" />
+        <span class="info"><span class="t">${escapeHtml(s.title)}</span>
+        <span class="a">${escapeHtml(s.author)}</span>
+        <span class="a">${keyName(s.key).split(' (')[0]} · ${formatTime(s.duration)}</span></span>
+      </button>`,
+    )
+    .join('');
+  box.querySelectorAll<HTMLButtonElement>('.song').forEach((b) => {
+    b.onclick = () => {
+      showTab('youtube');
+      $<HTMLInputElement>('yt-url').value = `https://www.youtube.com/watch?v=${b.dataset.id}`;
+      void loadYouTube(b.dataset.id!);
+      $('step-song').scrollIntoView({ behavior: 'smooth' });
+    };
+  });
+}
+$('cat-search').addEventListener('input', renderCatalogue);
 
 $('yt-form').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -202,7 +248,10 @@ async function loadYouTube(url: string) {
   player.pause();
   player.removeAttribute('src');
   player.hidden = true;
-  $('timeline').innerHTML = '<p class="hint">Cliquez sur « Écouter et analyser » pour trouver les accords.</p>';
+  $('timeline').innerHTML = '<p class="hint">Analyse en cours…</p>';
+  $('listen').hidden = true;
+  analysisToken.cancelled = true;
+  const token = (analysisToken = { cancelled: false });
   $('diagrams').innerHTML = '';
   $('yt-wrap').hidden = false;
   $('player-wrap').hidden = false;
@@ -216,20 +265,37 @@ async function loadYouTube(url: string) {
         stopListening(false);
       });
     yt.pauseVideo();
-    $('listen').hidden = false;
-    $('listen-state').textContent = tabCaptureSupported()
-      ? ''
-      : "⚠️ Votre navigateur ne permet pas d'écouter l'onglet : utilisez Chrome ou Edge sur ordinateur.";
+    history.replaceState(null, '', `?v=${id}`);
     render();
   } catch (err) {
     ytError((err as Error).message);
   }
+  try {
+    const song = await analyzeVideo(id, (f, l) => !token.cancelled && setProgress(f, l), token);
+    if (token.cancelled) return;
+    setProgress(null);
+    $('song-title').textContent = song.title;
+    state.analysis = null;
+    showAnalysis(song.analysis);
+    void refreshCatalogue();
+  } catch (err) {
+    if (token.cancelled) return;
+    setProgress(null);
+    ytError((err as Error).message);
+    $('timeline').innerHTML = '<p class="hint">Les accords n’ont pas pu être trouvés.</p>';
+    // solution de secours sur ordinateur : écouter le son de l'onglet
+    if (tabCaptureSupported()) {
+      $('listen').hidden = false;
+      $('listen-state').textContent = 'Vous pouvez aussi analyser la vidéo en écoutant cet onglet.';
+    }
+  }
 }
+let analysisToken = { cancelled: false };
 
 function onYtState(s: number) {
   ytState = s;
   const title = yt?.getVideoData()?.title;
-  if (title && state.source === 'youtube') $('song-title').textContent = title;
+  if (title && state.source === 'youtube' && $('song-title').textContent === 'Vidéo YouTube') $('song-title').textContent = title;
   if (s === YT_STATE.PLAYING && state.source === 'youtube' && state.appliedSemitones !== 0) {
     // on ne joue pas deux sources à la fois
     player.pause();
@@ -621,8 +687,11 @@ function render() {
         : `Lecture : version transposée (${s > 0 ? '+' : ''}${s})`
       : 'L’audio n’est pas encore transposé.'
     : state.source === 'youtube' && state.analysis
-      ? 'Terminez l’écoute de la vidéo pour pouvoir transposer l’audio.'
+      ? s
+        ? 'La vidéo garde sa tonalité d’origine : seuls les accords affichés sont transposés.'
+        : ''
       : '';
+  btn.hidden = !state.buffer;
   const dl = $<HTMLAnchorElement>('download');
   dl.hidden = !(state.shiftedUrl && state.appliedSemitones !== 0);
   if (state.shiftedUrl) {
@@ -757,3 +826,9 @@ function tick() {
 requestAnimationFrame(tick);
 
 render();
+void refreshCatalogue();
+const initial = new URLSearchParams(location.search).get('v');
+if (initial && parseYouTubeId(initial)) {
+  $<HTMLInputElement>('yt-url').value = `https://www.youtube.com/watch?v=${initial}`;
+  void loadYouTube(initial);
+}

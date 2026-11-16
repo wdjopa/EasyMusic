@@ -1,16 +1,17 @@
 # 🎸 EasyMusic
 
 Trouvez les **accords de guitare** de n'importe quelle chanson et **transposez-la dans la tessiture de votre voix**.
-Tout fonctionne dans le navigateur : aucun fichier n'est envoyé à un serveur.
+L'analyse des fichiers se fait dans le navigateur ; celle des vidéos YouTube sur le serveur.
 
 ## Fonctionnalités
 
-1. **Deux sources** :
-   - **une vidéo YouTube** : collez le lien, la vidéo est lue dans le lecteur officiel intégré et EasyMusic
-     écoute le son de l'onglet (partage d'onglet du navigateur) pendant la lecture. Les accords apparaissent au fur et
-     à mesure, puis se synchronisent sur la vidéo. Aucun téléchargement depuis YouTube (conforme à ses conditions
-     d'utilisation). Chrome/Edge sur ordinateur ; l'écoute dure le temps de la chanson ;
-   - **un fichier audio** (MP3, WAV, M4A, OGG, FLAC…), analysé instantanément.
+1. **Trois sources** :
+   - **une vidéo YouTube** (ordinateur et téléphone) : le serveur récupère la piste audio, trouve les accords,
+     puis **supprime l'audio**. Seuls les accords sont gardés, dans le **catalogue** partagé : une chanson déjà
+     analysée s'ouvre instantanément. La vidéo se lit dans le lecteur YouTube officiel, les accords défilent en même
+     temps. Lien partageable : `/?v=<identifiant>` ;
+   - **le catalogue** des chansons déjà analysées, avec recherche ;
+   - **un fichier audio** (MP3, WAV, M4A…), analysé directement dans le navigateur.
 2. **Détection des accords**
    - chromagramme (énergie des 12 notes) sur les pics spectraux ;
    - reconnaissance par gabarits harmoniques (majeur, mineur, 7, maj7, m7, dim, sus2, sus4) + analyse de la basse ;
@@ -26,16 +27,45 @@ Tout fonctionne dans le navigateur : aucun fichier n'est envoyé à un serveur.
 
 ## Démarrer
 
+Prérequis : Node 22, `ffmpeg` et `yt-dlp` (`pip install -U yt-dlp`).
+
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm test         # tests des algorithmes sur de l'audio synthétique
-npm run build    # version de production dans dist/
+npm run dev      # site sur http://localhost:5173 + serveur d'analyse sur :8787
+npm test         # tests (algorithmes, serveur avec un faux yt-dlp)
+npm run build && npm start   # production : tout sur http://localhost:8787
 ```
+
+Ou avec Docker : `docker build -t easymusic . && docker run -p 8787:8787 -v easymusic-data:/data easymusic`
+
+### Configuration du serveur (variables d'environnement)
+
+| Variable | Défaut | Rôle |
+| --- | --- | --- |
+| `PORT` | 8787 | Port HTTP |
+| `DATA_DIR` | `data` | Catalogue (un fichier JSON par chanson) |
+| `YTDLP_PATH` / `FFMPEG_PATH` | `yt-dlp` / `ffmpeg` | Chemins des outils |
+| `YTDLP_COOKIES` | — | Fichier de cookies YouTube, si YouTube bloque le serveur |
+| `YTDLP_EXTRA_ARGS` | — | Options supplémentaires de yt-dlp (ex. `--proxy http://…`) |
+| `MAX_DURATION` | 900 | Durée maximale d'une vidéo (s) |
+| `CONCURRENCY` | 2 | Analyses simultanées |
+| `RATE_LIMIT_PER_HOUR` | 20 | Nouvelles analyses par IP et par heure |
+
+### YouTube bloque souvent les serveurs
+
+Depuis un hébergeur cloud, YouTube répond fréquemment « Sign in to confirm you're not a bot ». Solutions :
+héberger le serveur sur une connexion résidentielle, passer par un proxy résidentiel (`YTDLP_EXTRA_ARGS`), ou
+fournir des cookies (`YTDLP_COOKIES`, avec un compte secondaire : le compte peut être suspendu). Gardez yt-dlp à
+jour (l'image Docker le met à jour à chaque démarrage). Sur ordinateur, l'app propose en secours d'analyser la
+vidéo en écoutant l'onglet.
+
+Télécharger depuis YouTube est contraire à ses conditions d'utilisation : EasyMusic ne conserve jamais l'audio,
+uniquement les accords.
 
 ## Structure
 
 ```
+server/       API (catalogue, file d'analyses, yt-dlp + ffmpeg)
 src/
   dsp/        traitement du signal (FFT, chroma, accords, tonalité, YIN, mélodie, pitch-shift, worker)
   music/      théorie musicale (transposition, tessitures, capo) et doigtés de guitare

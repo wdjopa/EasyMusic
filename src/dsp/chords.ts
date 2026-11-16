@@ -1,4 +1,4 @@
-import { Chord, ChordQuality, QUALITY_INTERVALS, mod12, sameChord } from '../music/theory';
+import { Chord, ChordQuality, type Key, QUALITY_INTERVALS, mod12, sameChord } from '../music/theory';
 
 export interface ChordSegment {
   start: number; // secondes
@@ -49,7 +49,12 @@ function buildTemplates(): Template[] {
 }
 
 const TEMPLATES = buildTemplates();
-const BASS_WEIGHT = 4;
+/** Bonus quand la basse joue la fondamentale de l'accord… */
+const BASS_ROOT = 3;
+/** …ou une autre note de l'accord (renversement, ex. G/B). */
+const BASS_TONE = 1.0;
+/** Bonus pour les accords qui appartiennent à la gamme de la tonalité. */
+const KEY_BONUS = 1.6;
 
 export interface RecognizeOptions {
   /** Durée d'une trame en secondes. */
@@ -62,6 +67,51 @@ export interface RecognizeOptions {
   extended?: boolean;
   /** Chroma de la basse (même nombre de trames), facultatif. */
   bass?: Float32Array[];
+  /** Tonalité : favorise les accords de la gamme (seconde passe). */
+  key?: Key;
+  /**
+   * Instants des temps (même repère que les trames : trame i = [i, i+1) × frameDuration).
+   * Si fournis, les accords ne changent que sur un temps, de préférence en début de mesure.
+   */
+  beats?: number[];
+  /** Nombre de temps entre deux changements d'accord typiques (2 ou 4), si connu. */
+  harmonicBeats?: number;
+}
+
+const MAJOR_SCALE = [0, 2, 4, 5, 7, 9, 11];
+const MINOR_SCALE = [0, 2, 3, 5, 7, 8, 10, 11]; // mineur naturel + sensible (accord de dominante majeur)
+
+/** Vrai si toutes les notes de l'accord appartiennent à la gamme de la tonalité. */
+export function isDiatonic(c: Chord, key: Key): boolean {
+  const scale = (key.mode === 'major' ? MAJOR_SCALE : MINOR_SCALE).map((d) => mod12(d + key.tonic));
+  return QUALITY_INTERVALS[c.quality].every((iv) => scale.includes(mod12(c.root + iv)));
+}
+
+/** Estime la tonalité à partir des accords reconnus (durée des accords de chaque gamme). */
+export function keyFromChords(segs: ChordSegment[], profileScore?: (key: Key) => number): Key | null {
+  let best: Key | null = null;
+  let bestScore = 0;
+  const total = segs.reduce((a, s) => a + (s.chord ? s.end - s.start : 0), 0) || 1;
+  for (const mode of ['major', 'minor'] as const) {
+    for (let tonic = 0; tonic < 12; tonic++) {
+      const key = { tonic, mode };
+      let score = 0;
+      for (const s of segs) {
+        if (!s.chord) continue;
+        const d = s.end - s.start;
+        if (isDiatonic(s.chord, key)) score += d;
+        // l'accord de tonique départage les tonalités relatives (Do majeur / La mineur)
+        if (s.chord.root === tonic && (s.chord.quality === 'min') === (mode === 'minor')) score += 0.35 * d;
+      }
+      // départage : profil des notes (Krumhansl), puis préférence pour le majeur, plus fréquent
+      score = score / total + 0.3 * (profileScore?.(key) ?? 0) + (mode === 'major' ? 0.02 : 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = key;
+      }
+    }
+  }
+  return best;
 }
 
 /**
@@ -82,6 +132,7 @@ export function recognizeChords(chroma: Float32Array[], opts: RecognizeOptions):
   const silence = ref * 0.06;
 
   const beta = 22; // « netteté » de l'émission
+  const diatonic = templates.map((t) => (opts.key ? isDiatonic(t.chord, opts.key) : false));
   const scores: Float64Array[] = new Array(T);
   for (let t = 0; t < T; t++) {
     const c = chroma[t];
@@ -108,11 +159,20 @@ export function recognizeChords(chroma: Float32Array[], opts: RecognizeOptions):
       let dot = 0;
       for (let i = 0; i < 12; i++) dot += v[i] * tp.vec[i];
       const r = tp.chord.root;
-      row[s] = beta * dot * tp.prior + BASS_WEIGHT * (bass[r] * bass[r]) - silentness * 10;
+      let otherTone = 0;
+      for (const iv of QUALITY_INTERVALS[tp.chord.quality]) if (iv) otherTone = Math.max(otherTone, bass[mod12(r + iv)]);
+      row[s] =
+        beta * dot * tp.prior +
+        BASS_ROOT * bass[r] * bass[r] +
+        BASS_TONE * otherTone * otherTone +
+        (diatonic[s] ? KEY_BONUS : 0) -
+        silentness * 10;
     }
     row[NC] = silentness ? beta : beta * 0.55;
     scores[t] = row;
   }
+
+  if (opts.beats && opts.beats.length > 4) return decodeOnBeats(scores, chroma, opts, templates, NC);
 
   // Viterbi
   const pStay = opts.stayProbability ?? Math.pow(0.9, opts.frameDuration / 0.17);
@@ -208,4 +268,139 @@ export function mergeShort(segs: ChordSegment[], minDuration: number): ChordSegm
     out = merged;
   }
   return out;
+}
+
+/** Probabilité de changer d'accord selon la position dans la mesure (4 temps)… */
+const CHANGE_PROB_4 = [0.45, 0.03, 0.15, 0.03];
+/** …ou dans la demi-mesure, pour les morceaux où les accords changent tous les 2 temps. */
+const CHANGE_PROB_2 = [0.45, 0.04];
+
+/**
+ * Décodage « musical » : un accord dure au moins un temps et change surtout
+ * au début des mesures (puis à la mi-mesure), comme dans la grande majorité des chansons.
+ */
+function decodeOnBeats(
+  scores: Float64Array[],
+  chroma: Float32Array[],
+  opts: RecognizeOptions,
+  templates: Template[],
+  NC: number,
+): ChordSegment[] {
+  const fd = opts.frameDuration;
+  const T = scores.length;
+  const S = NC + 1;
+  // bornes des temps, en trames
+  const bounds = [0];
+  for (const b of opts.beats!) {
+    const f = Math.round(b / fd);
+    if (f > bounds[bounds.length - 1] && f < T) bounds.push(f);
+  }
+  bounds.push(T);
+  const B = bounds.length - 1;
+
+  // score de chaque accord sur chaque temps (moyenne des trames) et chroma moyen (notes + basse)
+  const E: Float64Array[] = [];
+  const beatChroma: Float64Array[] = [];
+  for (let b = 0; b < B; b++) {
+    const e = new Float64Array(S);
+    const c = new Float64Array(24);
+    const n = bounds[b + 1] - bounds[b];
+    for (let f = bounds[b]; f < bounds[b + 1]; f++) {
+      for (let s = 0; s < S; s++) e[s] += scores[f][s];
+      for (let i = 0; i < 12; i++) {
+        c[i] += chroma[f][i];
+        if (opts.bass?.[f]) c[12 + i] += 2 * opts.bass[f][i];
+      }
+    }
+    for (let s = 0; s < S; s++) e[s] = (e[s] / n) * 4;
+    E.push(e);
+    beatChroma.push(c);
+  }
+
+  const CHANGE_PROB = opts.harmonicBeats === 2 ? CHANGE_PROB_2 : CHANGE_PROB_4;
+  const cycle = CHANGE_PROB.length;
+  // début des mesures : phase où l'harmonie change le plus
+  const novelty = new Float64Array(B);
+  for (let b = 1; b < B; b++) {
+    const a = beatChroma[b - 1];
+    const c = beatChroma[b];
+    let dot = 0;
+    let na = 0;
+    let nc = 0;
+    for (let i = 0; i < 24; i++) {
+      dot += a[i] * c[i];
+      na += a[i] * a[i];
+      nc += c[i] * c[i];
+    }
+    novelty[b] = 1 - dot / (Math.sqrt(na * nc) || 1);
+  }
+  let phase = 0;
+  let bestNov = -1;
+  for (let p = 0; p < cycle; p++) {
+    let sum = 0;
+    for (let b = p; b < B; b += cycle) sum += novelty[b];
+    if (sum > bestNov) {
+      bestNov = sum;
+      phase = p;
+    }
+  }
+
+  // Viterbi sur les temps
+  let prev = Float64Array.from(E[0]);
+  const back: Uint16Array[] = new Array(B);
+  for (let b = 1; b < B; b++) {
+    const pc = CHANGE_PROB[(((b - phase) % cycle) + cycle) % cycle];
+    const logStay = Math.log(1 - pc);
+    const logMove = Math.log(pc / (S - 1));
+    let bestPrev = 0;
+    for (let s = 1; s < S; s++) if (prev[s] > prev[bestPrev]) bestPrev = s;
+    const cur = new Float64Array(S);
+    const bp = new Uint16Array(S);
+    const move = prev[bestPrev] + logMove;
+    for (let s = 0; s < S; s++) {
+      const stay = prev[s] + logStay;
+      if (stay >= move) {
+        cur[s] = stay + E[b][s];
+        bp[s] = s;
+      } else {
+        cur[s] = move + E[b][s];
+        bp[s] = bestPrev;
+      }
+    }
+    back[b] = bp;
+    prev = cur;
+  }
+  const path = new Uint16Array(B);
+  let last = 0;
+  for (let s = 1; s < S; s++) if (prev[s] > prev[last]) last = s;
+  path[B - 1] = last;
+  for (let b = B - 1; b > 0; b--) path[b - 1] = back[b][path[b]];
+
+  // segments ; confiance = part des temps où l'accord choisi est (presque) le meilleur
+  const simple = (s: number) => {
+    if (s === NC) return -1;
+    const c = templates[s].chord;
+    const q = c.quality === 'min' || c.quality === 'm7' ? 1 : c.quality === 'dim' ? 2 : 0;
+    return c.root * 3 + q;
+  };
+  const segs: ChordSegment[] = [];
+  let start = 0;
+  for (let b = 1; b <= B; b++) {
+    if (b < B && path[b] === path[start]) continue;
+    const s = path[start];
+    let agree = 0;
+    for (let u = start; u < b; u++) {
+      let other = -Infinity;
+      for (let k = 0; k < S; k++) if (simple(k) !== simple(s) && E[u][k] > other) other = E[u][k];
+      if (E[u][s] >= other - 1) agree++;
+    }
+    segs.push({
+      start: bounds[start] * fd,
+      end: bounds[b] * fd,
+      chord: s === NC ? null : templates[s].chord,
+      confidence: agree / (b - start),
+    });
+    start = b;
+  }
+  return mergeShort(segs, 0.25);
 }

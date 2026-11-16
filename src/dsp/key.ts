@@ -36,3 +36,13 @@ export function detectKey(chroma: Float32Array[]): Key & { score: number } {
   }
   return best;
 }
+
+/** Corrélation entre le chroma moyen et le profil d'une tonalité donnée (-1..1). */
+export function keyProfileScorer(chroma: Float32Array[]): (key: Key) => number {
+  const avg = new Array(12).fill(0);
+  for (const c of chroma) {
+    const s = c.reduce((a, b) => a + b, 0) || 1;
+    for (let i = 0; i < 12; i++) avg[i] += c[i] / s;
+  }
+  return (key) => corr(avg.map((_, i) => avg[(i + key.tonic) % 12]), key.mode === 'major' ? MAJOR : MINOR);
+}

@@ -715,7 +715,7 @@ function render() {
         : 'Mélodie non détectée : indiquez la tessiture à la main.'
     : 'Chargez une chanson pour estimer automatiquement la tessiture de la mélodie.';
   if (a) {
-    $('song-meta').textContent = `${formatTime(a.duration)} · Tonalité d’origine : ${keyName(a.key)} · ${
+    $('song-meta').textContent = `${formatTime(a.duration)}${a.bpm ? ` · ${a.bpm} BPM` : ''} · Tonalité d’origine : ${keyName(a.key)} · ${
       new Set(a.segments.filter((s) => s.chord).map((s) => chordName(s.chord))).size
     } accords différents`;
   }
@@ -815,14 +815,14 @@ function renderTimeline() {
   tl.innerHTML = '';
   segs.forEach((seg, i) => {
     const el = document.createElement('button');
-    el.className = 'chip' + (seg.chord ? '' : ' nc') + (seg.confidence < 0.6 ? ' unsure' : '');
+    el.className = 'chip' + (seg.chord ? '' : ' nc') + (seg.confidence < 0.5 ? ' unsure' : '');
     el.dataset.idx = String(i);
     const shape = chordName(shapeChord(seg.chord), f);
     const sound = chordName(soundingChord(seg.chord), f);
     el.innerHTML = `<span class="c">${shape}</span>${
       state.capo && seg.chord ? `<span class="s">son : ${sound}</span>` : ''
     }<span class="t">${formatTime(seg.start)}</span>`;
-    el.title = seg.confidence < 0.6 ? 'Détection incertaine' : '';
+    el.title = seg.confidence < 0.5 ? 'Détection incertaine' : '';
     el.style.flexGrow = String(Math.min(4, Math.max(1, (seg.end - seg.start) / 2)));
     el.onclick = () => mediaSeek(seg.start + 0.01);
     tl.append(el);

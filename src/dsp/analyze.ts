@@ -1,7 +1,8 @@
 import type { Key, Range } from '../music/theory';
 import { bassChromagram, chromagram } from './chroma';
-import { recognizeChords, type ChordSegment } from './chords';
-import { detectKey } from './key';
+import { alignBeatsToHarmony, harmonicNovelty, harmonicPeriod, trackBeats } from './beats';
+import { keyFromChords, recognizeChords, type ChordSegment } from './chords';
+import { detectKey, keyProfileScorer } from './key';
 import { estimateMelodyRange } from './melody';
 import { decimate, toMono } from './resample';
 import { stft } from './spectrum';
@@ -11,6 +12,8 @@ export interface AnalysisResult {
   key: Key;
   segments: ChordSegment[];
   melodyRange: Range | null;
+  /** Tempo estimé (battements par minute). */
+  bpm?: number;
 }
 
 export type Progress = (fraction: number, label: string) => void;
@@ -33,9 +36,25 @@ export function analyze(channels: Float32Array[], sampleRate: number, onProgress
   onProgress(0.7, 'Reconnaissance des accords…');
   const frameDuration = hop / sr;
   const bass = bassChromagram(spec);
-  const segments = recognizeChords(chroma, { frameDuration, minDuration: 0.7, bass });
-  // décaler pour que chaque trame soit centrée sur sa fenêtre
+  // 1re passe : accords « bruts » -> tonalité ; 2e passe : accords guidés par la tonalité
+  const firstPass = recognizeChords(chroma, { frameDuration, minDuration: 0.7, bass });
+  const chordKey = keyFromChords(firstPass, keyProfileScorer(chroma)) ?? detectKey(chroma);
+  // décalage entre l'indice des trames et le temps réel (centre de la fenêtre d'analyse)
   const offset = fftSize / 2 / sr - frameDuration / 2;
+  onProgress(0.78, 'Détection du tempo et des mesures…');
+  const hp = harmonicPeriod(chroma, frameDuration, bass);
+  const tracked = trackBeats(x, sr, hp);
+  const bpm = tracked.bpm;
+  const beats = alignBeatsToHarmony(tracked.beats, harmonicNovelty(chroma, frameDuration, bass), (t) => (t - offset) / frameDuration - 0.5);
+  const harmonicBeats = hp && bpm ? Math.round(hp / (60 / bpm)) : undefined;
+  const segments = recognizeChords(chroma, {
+    frameDuration,
+    minDuration: 0.7,
+    bass,
+    key: chordKey,
+    beats: beats.map((b) => b - offset),
+    harmonicBeats,
+  });
   for (const s of segments) {
     s.start = Math.max(0, s.start + offset);
     s.end = s.end + offset;
@@ -46,7 +65,7 @@ export function analyze(channels: Float32Array[], sampleRate: number, onProgress
   }
 
   onProgress(0.85, 'Détection de la tonalité et de la mélodie…');
-  const key = detectKey(chroma);
+  const key = chordKey;
   const mr = estimateMelodyRange(spec);
 
   onProgress(1, 'Terminé');
@@ -55,5 +74,6 @@ export function analyze(channels: Float32Array[], sampleRate: number, onProgress
     key: { tonic: key.tonic, mode: key.mode },
     segments,
     melodyRange: mr ? { low: mr.low, high: mr.high } : null,
+    bpm: Math.round(bpm),
   };
 }

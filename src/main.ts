@@ -1,5 +1,5 @@
 import { analyzeChannels, analyzeInWorker, shiftInWorker } from './dsp/client';
-import type { AnalysisResult } from './dsp/analyze';
+import { ANALYSIS_VERSION, type AnalysisResult } from './dsp/analyze';
 import type { ChordSegment } from './dsp/chords';
 import { rangeFromFrequencies } from './dsp/melody';
 import { chordDiagramSvg, voicingsFor } from './music/guitar';
@@ -286,7 +286,7 @@ async function loadYouTube(url: string) {
   currentSongId = id;
   // déjà dans le catalogue du navigateur : rien à demander au serveur
   const saved = getSong(id);
-  if (saved) {
+  if (saved && saved.analysis.version === ANALYSIS_VERSION) {
     saveSong(saved); // met à jour la date d'ouverture
     openSong(saved);
     refreshCatalogue();
@@ -297,7 +297,8 @@ async function loadYouTube(url: string) {
     if (token.cancelled) return;
     setProgress(null);
     saveSong(song);
-    openSong(song);
+    // une ancienne analyse refaite garde les réglages de l'utilisateur
+    openSong({ ...song, prefs: saved?.prefs });
     refreshCatalogue();
   } catch (err) {
     if (token.cancelled) return;

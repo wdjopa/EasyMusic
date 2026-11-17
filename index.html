@@ -76,7 +76,15 @@
         <div class="media">
           <div class="yt-wrap" id="yt-wrap" hidden><div id="yt-player"></div></div>
           <div id="player-wrap" hidden>
-            <audio id="player" controls preload="auto"></audio>
+            <audio id="player" preload="auto"></audio>
+          </div>
+          <!-- commandes de lecture (vidéo YouTube, son transposé ou fichier) -->
+          <div class="transport" id="transport" hidden>
+            <button class="btn ghost" id="tp-back" title="Reculer de 5 s (←)" aria-label="Reculer de 5 secondes">⏪</button>
+            <button class="btn primary tp-play" id="tp-play" title="Lecture / pause (espace)" aria-label="Lecture">▶</button>
+            <button class="btn ghost" id="tp-fwd" title="Avancer de 5 s (→)" aria-label="Avancer de 5 secondes">⏩</button>
+            <input type="range" id="tp-seek" min="0" max="100" step="0.1" value="0" aria-label="Position dans le morceau" />
+            <span class="tp-time" id="tp-time">0:00 / 0:00</span>
           </div>
         </div>
         <div class="song-head">

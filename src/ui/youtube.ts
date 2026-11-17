@@ -13,6 +13,8 @@ export interface YTPlayer {
   mute(): void;
   unMute(): void;
   loadVideoById(id: string): void;
+  /** Prépare une vidéo sans la lancer (miniature + grand bouton ▶). */
+  cueVideoById(id: string): void;
   getVideoData(): { title?: string; author?: string };
   destroy(): void;
 }

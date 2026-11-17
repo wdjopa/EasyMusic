@@ -515,13 +515,14 @@ async function loadYouTube(url: string) {
   $('song-title').textContent = 'Vidéo YouTube';
   $('song-meta').textContent = '';
   try {
-    if (yt) yt.loadVideoById(id);
+    // préparer sans lancer : YouTube affiche la miniature et son grand bouton ▶
+    // (lancer puis mettre en pause laissait un écran noir sans bouton)
+    if (yt) yt.cueVideoById(id);
     else
       yt = await createPlayer($('yt-player'), id, onYtState, (m) => {
         ytError(m);
         stopListening(false);
       });
-    yt.pauseVideo();
     history.replaceState(null, '', `?v=${id}`);
     render();
   } catch (err) {
@@ -1704,6 +1705,68 @@ function updateGauge() {
   $('gauge-label').innerHTML = label + nextLabel;
 }
 
+// ---------------------------------------------------------------- commandes de lecture
+function isMediaPlaying(): boolean {
+  return usingYt() ? ytState === YT_STATE.PLAYING || ytState === YT_STATE.BUFFERING : !player.paused;
+}
+function mediaDuration(): number {
+  if (usingYt()) return yt?.getDuration() || state.analysis?.duration || 0;
+  return Number.isFinite(player.duration) ? player.duration : state.analysis?.duration ?? 0;
+}
+function togglePlay() {
+  if (usingYt()) {
+    if (isMediaPlaying()) yt!.pauseVideo();
+    else yt!.playVideo();
+  } else if (player.src) {
+    if (player.paused) void player.play();
+    else player.pause();
+  }
+}
+function seekBy(d: number) {
+  const t = Math.max(0, Math.min(mediaDuration() - 0.5, mediaTime() + d));
+  if (usingYt()) yt!.seekTo(t, true);
+  else player.currentTime = t;
+}
+$('tp-play').onclick = togglePlay;
+$('tp-back').onclick = () => seekBy(-5);
+$('tp-fwd').onclick = () => seekBy(5);
+const seekBar = $<HTMLInputElement>('tp-seek');
+let seeking = false;
+seekBar.addEventListener('input', () => {
+  seeking = true;
+  $('tp-time').textContent = `${formatTime(+seekBar.value)} / ${formatTime(mediaDuration())}`;
+});
+seekBar.addEventListener('change', () => {
+  seeking = false;
+  const t = +seekBar.value;
+  if (usingYt()) yt!.seekTo(t, true);
+  else player.currentTime = t;
+});
+// raccourcis clavier (sauf quand on écrit dans un champ)
+document.addEventListener('keydown', (e) => {
+  if ($('workspace').hidden || (e.target as HTMLElement).closest('input, select, textarea, [contenteditable]')) return;
+  if (e.code === 'Space') {
+    e.preventDefault();
+    togglePlay();
+  } else if (e.code === 'ArrowLeft') seekBy(-5);
+  else if (e.code === 'ArrowRight') seekBy(5);
+});
+function updateTransport() {
+  const ready = !$('workspace').hidden && (state.source === 'youtube' ? !!yt : !!player.src);
+  $('transport').hidden = !ready;
+  if (!ready) return;
+  const playing = isMediaPlaying();
+  const btn = $('tp-play');
+  btn.textContent = playing ? '⏸' : '▶';
+  btn.setAttribute('aria-label', playing ? 'Pause' : 'Lecture');
+  const d = mediaDuration();
+  seekBar.max = String(Math.max(1, d));
+  if (!seeking) {
+    seekBar.value = String(mediaTime());
+    $('tp-time').textContent = `${formatTime(mediaTime())} / ${formatTime(d)}`;
+  }
+}
+
 // ---------------------------------------------------------------- barre fixe sur téléphone
 let nowVisible = true;
 new IntersectionObserver((entries) => {
@@ -1727,6 +1790,7 @@ function tickMini() {
 }
 
 function tick() {
+  updateTransport();
   updateNow();
   updateGauge();
   tickMini();

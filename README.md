@@ -54,6 +54,20 @@ en mémoire (pour éviter de retélécharger une vidéo demandée plusieurs fois
 | `CONCURRENCY` | 2 | Analyses simultanées |
 | `RATE_LIMIT_PER_HOUR` | 20 | Nouvelles analyses par IP et par heure |
 
+### Paroles par IA (Whisper, en local)
+
+Quand une chanson n'a pas de paroles synchronisées dans LRCLIB, le serveur les transcrit avec
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp), sans rien envoyer à l'extérieur :
+
+```bash
+npm run whisper:setup            # installe whisper.cpp (Homebrew) + modèle large-v3-turbo-q5_0 (~550 Mo)
+npm run whisper:setup small      # ou un modèle plus léger : base (~150 Mo), small (~470 Mo)
+```
+
+Le serveur détecte tout seul le modèle dans `models/`. Variables : `WHISPER_CLI`, `WHISPER_MODEL`,
+`WHISPER_LANGUAGE` (`auto` par défaut), `WHISPER_THREADS`. La transcription prend de 20 s à 1 min par chanson sur
+un Mac récent ; elle peut contenir des erreurs (l'app l'indique).
+
 ### En cas d'erreur 403 ou « not a bot »
 
 1. Mettre yt-dlp à jour : `brew upgrade yt-dlp`, `pip install -U "yt-dlp[default]"` ou `yt-dlp -U`.

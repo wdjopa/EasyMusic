@@ -205,3 +205,15 @@ select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid 
 .key-banner { flex-basis: 100%; margin: 0; font-size: 0.9rem; }
 .key-banner:empty { display: none; }
 .key-banner strong { color: var(--accent); }
+
+/* jauge du temps restant sur l'accord en cours */
+.gauge-wrap { flex-basis: 100%; display: grid; gap: 6px; }
+.gauge { display: flex; gap: 4px; height: 16px; }
+.gauge .beat { flex: 1; position: relative; border-radius: 4px; background: var(--card); border: 1px solid var(--line); overflow: hidden; }
+.gauge .beat::after { content: ''; position: absolute; inset: 0; width: var(--fill, 0%); background: var(--voice); }
+.gauge .beat.done::after { width: 100%; }
+.gauge.last .beat::after { background: var(--accent); }
+.gauge-label { font-size: 0.9rem; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.gauge-label strong { color: var(--text); }
+.gauge.last + .gauge-label .soon { color: var(--accent); font-weight: 700; }
+.next-chord.soon { color: var(--accent); }

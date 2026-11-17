@@ -937,7 +937,7 @@ function renderTimeline() {
     const sound = chordName(soundingChord(seg.chord), f);
     el.innerHTML = `<span class="c">${shape}</span>${
       state.capo && seg.chord ? `<span class="s">son : ${sound}</span>` : ''
-    }<span class="t">${formatTime(seg.start)}</span>`;
+    }<span class="t">${formatTime(seg.start)}${seg.chord && beatsOf(seg) ? ` · ${beatsOf(seg)} t.` : ''}</span>`;
     el.title = seg.confidence < 0.5 ? 'Détection incertaine' : '';
     el.style.flexGrow = String(Math.min(4, Math.max(1, (seg.end - seg.start) / 2)));
     el.onclick = () => mediaSeek(seg.start + 0.01);
@@ -997,8 +997,65 @@ function updateNow() {
   $('now-diagram').innerHTML = sc ? chordDiagramSvg(chordName(sc, f), voicingsFor(sc)[0]) : '';
 }
 
+/** Durée d'un temps (s) d'après le tempo détecté, ou null s'il est inconnu. */
+function beatSeconds(): number | null {
+  const bpm = state.analysis?.bpm;
+  return bpm && bpm > 30 ? 60 / bpm : null;
+}
+
+/** Nombre de temps d'un accord. */
+function beatsOf(seg: ChordSegment): number {
+  const b = beatSeconds();
+  return b ? Math.max(1, Math.round((seg.end - seg.start) / b)) : 0;
+}
+
+let gaugeKey = '';
+/** Jauge : une case par temps de l'accord en cours, qui se remplit ; alerte sur le dernier temps. */
+function updateGauge() {
+  const wrap = $('gauge-wrap');
+  const seg = state.currentIdx >= 0 ? segs[state.currentIdx] : undefined;
+  if (!state.analysis || !seg || !seg.chord) {
+    wrap.hidden = true;
+    gaugeKey = '';
+    return;
+  }
+  wrap.hidden = false;
+  const t = mediaTime();
+  const dur = seg.end - seg.start;
+  const beat = beatSeconds();
+  // au-delà de 16 temps, une seule barre continue
+  const n = beat ? Math.min(beatsOf(seg), 16) : 1;
+  const cell = dur / n;
+  const gauge = $('gauge');
+  const key = `${state.currentIdx}:${n}`;
+  if (key !== gaugeKey) {
+    gauge.innerHTML = '<div class="beat"></div>'.repeat(n);
+    gaugeKey = key;
+  }
+  const elapsed = Math.max(0, Math.min(dur, t - seg.start));
+  const remaining = dur - elapsed;
+  const cur = Math.min(n - 1, Math.floor(elapsed / cell));
+  gauge.querySelectorAll<HTMLElement>('.beat').forEach((el, i) => {
+    el.classList.toggle('done', i < cur);
+    el.style.setProperty('--fill', i === cur ? `${((elapsed - i * cell) / cell) * 100}%` : '0%');
+  });
+  const last = beat ? remaining <= beat : remaining <= 1;
+  gauge.classList.toggle('last', last);
+  $('next-chord').classList.toggle('soon', last);
+  const next = segs.slice(state.currentIdx + 1).find((x) => x.chord);
+  const total = beatsOf(seg);
+  const label = beat
+    ? `<span>Temps <strong>${Math.min(total, Math.floor(elapsed / beat) + 1)}</strong> / ${total}</span>`
+    : `<span>${elapsed.toFixed(1)} s / ${dur.toFixed(1)} s</span>`;
+  const nextLabel = next
+    ? `<span class="soon">${last ? '➜ ' : ''}${chordName(shapeChord(next.chord), flats())} dans ${remaining.toFixed(1).replace('.', ',')} s</span>`
+    : '';
+  $('gauge-label').innerHTML = label + nextLabel;
+}
+
 function tick() {
   updateNow();
+  updateGauge();
   if (followingAudio() && !player.paused && performance.now() - ytCommandAt > 1500) {
     const drift = yt!.getCurrentTime() - player.currentTime;
     if (Math.abs(drift) > 0.5) commandYt((p) => p.seekTo(player.currentTime, true));

@@ -454,3 +454,32 @@ function decodeOnBeats(
   }
   return mergeShort(segs, 0.25);
 }
+
+/**
+ * Classement des accords pour UNE trame (écoute en direct au micro) :
+ * même calcul que la reconnaissance du morceau (gabarits harmoniques + basse + tonalité).
+ */
+export function chordCandidates(chroma: Float32Array, bass?: Float32Array, key?: Key): { chord: Chord; score: number }[] {
+  const v = new Float64Array(12);
+  let max = 0;
+  for (let i = 0; i < 12; i++) max = Math.max(max, chroma[i]);
+  if (!max) return [];
+  for (let i = 0; i < 12; i++) v[i] = Math.log1p((chroma[i] / max) * 20);
+  const n = Math.hypot(...v) || 1;
+  for (let i = 0; i < 12; i++) v[i] /= n;
+  const b = new Float64Array(12);
+  if (bass) {
+    let bm = 0;
+    for (let i = 0; i < 12; i++) bm = Math.max(bm, bass[i]);
+    if (bm > 0) for (let i = 0; i < 12; i++) b[i] = bass[i] / bm;
+  }
+  return TEMPLATES.map((tp) => {
+    let dot = 0;
+    for (let i = 0; i < 12; i++) dot += v[i] * tp.vec[i];
+    const r = tp.chord.root;
+    let other = 0;
+    for (const iv of QUALITY_INTERVALS[tp.chord.quality]) if (iv) other = Math.max(other, b[mod12(r + iv)]);
+    const score = 22 * dot * tp.prior + BASS_ROOT * b[r] * b[r] + BASS_TONE * other * other + (key && isDiatonic(tp.chord, key) ? KEY_BONUS : 0);
+    return { chord: tp.chord, score };
+  }).sort((x, y) => y.score - x.score);
+}

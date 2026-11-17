@@ -142,6 +142,32 @@
             <div class="gauge-label" id="gauge-label"></div>
           </div>
         </div>
+        <section class="practice" id="practice">
+          <div class="practice-head">
+            <strong>🎙️ Vérifier mon jeu</strong>
+            <div class="practice-modes" role="group" aria-label="Ce que le micro vérifie">
+              <button class="pmode" data-pmode="instrument">🎸 Instrument</button>
+              <button class="pmode" data-pmode="voice">🎤 Voix</button>
+              <button class="pmode" data-pmode="both">🎸+🎤 Les deux</button>
+            </div>
+            <button class="btn primary" id="practice-btn">▶ Démarrer</button>
+          </div>
+          <p class="small practice-tip">🎧 Mettez un casque ou des écouteurs : sinon le micro entend aussi la musique et tout paraît juste.</p>
+          <div class="practice-live" id="practice-live" hidden>
+            <div class="pl-box" id="pl-chord-box">
+              <small>Vous jouez</small>
+              <div class="pl-big" id="pl-chord">—</div>
+              <div class="pl-verdict" id="pl-chord-verdict"></div>
+            </div>
+            <div class="pl-box" id="pl-voice-box">
+              <small>Vous chantez</small>
+              <div class="pl-big" id="pl-note">—</div>
+              <div class="tuner"><div class="tuner-zone"></div><div class="tuner-needle" id="tuner-needle"></div></div>
+              <div class="pl-verdict" id="pl-voice-verdict"></div>
+            </div>
+            <div class="pl-score" id="pl-score"></div>
+          </div>
+        </section>
         <div class="timeline" id="timeline"><p class="hint">Les accords apparaîtront ici après l'analyse.</p></div>
         <div class="lyrics-head">
           <h3>Paroles</h3>

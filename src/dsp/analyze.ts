@@ -8,7 +8,7 @@ import { decimate, toMono } from './resample';
 import { stft } from './spectrum';
 
 /** À incrémenter quand l'algorithme change : les analyses plus anciennes sont refaites. */
-export const ANALYSIS_VERSION = 3;
+export const ANALYSIS_VERSION = 4;
 
 export interface AnalysisResult {
   version?: number;
@@ -18,6 +18,10 @@ export interface AnalysisResult {
   melodyRange: Range | null;
   /** Tempo estimé (battements par minute). */
   bpm?: number;
+  /** Mélodie principale estimée : une note MIDI (0 = aucune) toutes les `melodyStep` secondes. */
+  melody?: number[];
+  melodyStep?: number;
+  melodyOffset?: number;
 }
 
 export type Progress = (fraction: number, label: string) => void;
@@ -79,6 +83,10 @@ export function analyze(channels: Float32Array[], sampleRate: number, onProgress
     key: { tonic: key.tonic, mode: key.mode },
     segments,
     melodyRange: mr ? { low: mr.low, high: mr.high } : null,
+    melody: mr ? Array.from(mr.track, (m) => (Number.isFinite(m) ? Math.round(m) : 0)) : undefined,
+    // la trame i couvre [i·hop, i·hop + fftSize] : son centre est à i·hop + fftSize/2
+    melodyStep: hop / sr,
+    melodyOffset: fftSize / 2 / sr,
     bpm: Math.round(bpm),
   };
 }

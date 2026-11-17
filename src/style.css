@@ -238,3 +238,29 @@ select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid 
 .lyric.current .text { font-weight: 700; }
 .lyrics .plain { white-space: pre-wrap; font-family: inherit; margin: 0; }
 @media (max-width: 480px) { .lyrics { font-size: 13.5px; } }
+
+/* entraînement au micro */
+.practice { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+.practice-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.practice-modes { display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: var(--bg); }
+.pmode { font: inherit; font-size: 0.85rem; color: var(--muted); border: 1px solid transparent; background: none; border-radius: 8px; padding: 5px 8px; cursor: pointer; }
+.pmode.active { background: var(--card); color: var(--text); border-color: var(--accent); }
+#practice-btn { margin-left: auto; }
+#practice-btn.recording { background: #c0392b; border-color: #c0392b; }
+.practice-tip { margin: 8px 0 0; }
+.practice-live { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.practice-live.single { grid-template-columns: 1fr; }
+.pl-box { border-radius: 10px; padding: 10px 12px; background: var(--bg); border: 2px solid transparent; transition: border-color 0.15s, background 0.15s; }
+.pl-box.ok { border-color: var(--voice); }
+.pl-box.close { border-color: #d4a017; }
+.pl-box.wrong { border-color: #c0392b; }
+.pl-big { font-size: 2rem; font-weight: 800; line-height: 1.2; }
+.pl-verdict { font-size: 0.9rem; min-height: 1.3em; }
+.pl-score { grid-column: 1 / -1; font-size: 0.9rem; color: var(--muted); }
+.pl-score strong { color: var(--text); }
+.tuner { position: relative; height: 10px; border-radius: 5px; background: linear-gradient(90deg, #c0392b33, #d4a01733 30%, var(--voice) 50%, #d4a01733 70%, #c0392b33); margin: 6px 0; }
+.tuner-needle { position: absolute; top: -4px; width: 3px; height: 18px; border-radius: 2px; background: var(--text); left: 50%; transform: translateX(-50%); transition: left 0.1s; }
+.chip.res-ok { box-shadow: inset 0 -4px 0 var(--voice); }
+.chip.res-mid { box-shadow: inset 0 -4px 0 #d4a017; }
+.chip.res-ko { box-shadow: inset 0 -4px 0 #c0392b; }
+@media (max-width: 480px) { .practice-live { grid-template-columns: 1fr; } #practice-btn { margin-left: 0; width: 100%; justify-content: center; } }

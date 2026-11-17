@@ -10,6 +10,7 @@ import {
   freqToMidi,
   keyName,
   midiName,
+  noteName,
   planTransposition,
   preferFlats,
   type Range,
@@ -25,6 +26,8 @@ import type { Lyrics } from './shared/lyrics';
 import { getSong, listSongs, removeSong, saveLyrics, savePrefs, saveSong, type LibrarySong } from './ui/library';
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
 import { startMic, type MicSession } from './ui/mic';
+import { startPractice, type PracticeSession } from './ui/practice';
+import { judgeChord, judgeVoice, type LiveFrame, type PracticeMode } from './dsp/live';
 import { createPlayer, parseYouTubeId, YT_STATE, type YTPlayer } from './ui/youtube';
 import { encodeWav } from './ui/wav';
 
@@ -959,6 +962,8 @@ function renderTimeline() {
     el.title = seg.confidence < 0.5 ? 'Détection incertaine' : '';
     el.style.flexGrow = String(Math.min(4, Math.max(1, (seg.end - seg.start) / 2)));
     el.onclick = () => mediaSeek(seg.start + 0.01);
+    const result = tallies.get(i);
+    if (result?.total) applyResult(el, result);
     tl.append(el);
   });
 }
@@ -1163,6 +1168,178 @@ function updateLyrics() {
   const playing = usingYt() ? ytState === YT_STATE.PLAYING : !player.paused;
   if (el && playing) box.scrollTop = el.offsetTop - box.offsetTop - box.clientHeight / 3;
 }
+
+// ---------------------------------------------------------------- vérifier mon jeu (micro)
+let practice: PracticeSession | null = null;
+let practiceMode: PracticeMode = (() => {
+  try {
+    const m = localStorage.getItem('easymusic.practiceMode');
+    return m === 'voice' || m === 'both' ? m : 'instrument';
+  } catch {
+    return 'instrument';
+  }
+})();
+/** Résultats par accord de la grille : part des moments joués justes. */
+let tallies = new Map<number, { ok: number; total: number }>();
+let voiceScore = { ok: 0, total: 0 };
+const recentChords: (Chord | null)[] = [];
+const MIC_LATENCY = 0.15; // le son arrive au micro un peu après la musique
+
+document.querySelectorAll<HTMLButtonElement>('.pmode').forEach((b) => {
+  b.onclick = () => {
+    practiceMode = b.dataset.pmode as PracticeMode;
+    try {
+      localStorage.setItem('easymusic.practiceMode', practiceMode);
+    } catch {
+      /* ignore */
+    }
+    renderPracticeMode();
+  };
+});
+
+function renderPracticeMode() {
+  document.querySelectorAll<HTMLElement>('.pmode').forEach((b) => b.classList.toggle('active', b.dataset.pmode === practiceMode));
+  $('pl-chord-box').hidden = practiceMode === 'voice';
+  $('pl-voice-box').hidden = practiceMode === 'instrument';
+  $('practice-live').classList.toggle('single', practiceMode !== 'both');
+}
+
+$('practice-btn').addEventListener('click', async () => {
+  const btn = $('practice-btn');
+  if (practice) {
+    practice.stop();
+    practice = null;
+    btn.textContent = '▶ Démarrer';
+    btn.classList.remove('recording');
+    return;
+  }
+  try {
+    tallies = new Map();
+    voiceScore = { ok: 0, total: 0 };
+    renderTimeline();
+    practice = await startPractice(
+      () => practiceMode,
+      () => (state.analysis ? transposeKey(state.analysis.key, shift()) : undefined),
+      onPracticeFrame,
+    );
+    btn.textContent = '⏹ Arrêter';
+    btn.classList.add('recording');
+    $('practice-live').hidden = false;
+    $('pl-score').textContent = 'Jouez en même temps que la musique…';
+  } catch (err) {
+    $('pl-score').textContent = `Micro indisponible : ${(err as Error).message}`;
+    $('practice-live').hidden = false;
+  }
+});
+
+/** Note de la mélodie attendue à l'instant t (dans la tonalité jouée), si l'analyse l'a estimée. */
+function expectedMelody(t: number): number | null {
+  const a = state.analysis;
+  if (!a?.melody?.length || !a.melodyStep) return null;
+  const i = Math.round((t - (a.melodyOffset ?? 0)) / a.melodyStep);
+  // tolérance : la note la plus proche dans ±0,2 s
+  for (const d of [0, -1, 1, -2, 2]) {
+    const m = a.melody[i + d];
+    if (m) return m + shift();
+  }
+  return null;
+}
+
+function onPracticeFrame(f: LiveFrame) {
+  if (!state.analysis) return;
+  const t = mediaTime() - MIC_LATENCY;
+  const idx = segmentAt(t, segs);
+  const expected = idx >= 0 ? soundingChord(segs[idx].chord) : null;
+  const fl = flats();
+  const key = transposeKey(state.analysis.key, shift());
+
+  // instrument : accord stable sur les 3 derniers blocs, pour éviter le clignotement
+  if (practiceMode !== 'voice') {
+    recentChords.push(f.chord);
+    if (recentChords.length > 3) recentChords.shift();
+    const counts = new Map<string, { c: Chord | null; n: number }>();
+    for (const c of recentChords) {
+      const k = c ? chordName(c) : '';
+      counts.set(k, { c, n: (counts.get(k)?.n ?? 0) + 1 });
+    }
+    const stable = [...counts.values()].sort((x, y) => y.n - x.n)[0].c;
+    const v = judgeChord(stable, expected);
+    const box = $('pl-chord-box');
+    box.classList.remove('ok', 'close', 'wrong');
+    // on affiche la forme à jouer (capo compris), comme dans la grille
+    const shape = (c: Chord | null) => (c ? chordName(transposeChord(c, -state.capo), fl) : '—');
+    $('pl-chord').textContent = stable ? shape(stable) : '—';
+    if (v !== 'silent') box.classList.add(v);
+    $('pl-chord-verdict').textContent =
+      v === 'silent'
+        ? f.level < 0.008
+          ? 'Je n’entends rien…'
+          : 'Accord pas assez net'
+        : v === 'ok'
+          ? '✓ Juste'
+          : v === 'close'
+            ? `≈ Presque : attendu ${shape(expected)}`
+            : `✗ Attendu : ${shape(expected)}`;
+    if (v !== 'silent' && idx >= 0) {
+      const tl = tallies.get(idx) ?? { ok: 0, total: 0 };
+      tl.total++;
+      tl.ok += v === 'ok' ? 1 : v === 'close' ? 0.5 : 0;
+      tallies.set(idx, tl);
+      const chip = document.querySelector<HTMLElement>(`.chip[data-idx="${idx}"]`);
+      if (chip) applyResult(chip, tl);
+    }
+  }
+
+  // voix : accordeur + rapport à la mélodie / à l'accord
+  if (practiceMode !== 'instrument') {
+    const box = $('pl-voice-box');
+    box.classList.remove('ok', 'close', 'wrong');
+    if (!f.pitch) {
+      $('pl-note').textContent = '—';
+      $('pl-voice-verdict').textContent = f.level < 0.008 ? 'Je n’entends rien…' : '';
+      $('tuner-needle').style.left = '50%';
+    } else {
+      const p = f.pitch;
+      $('pl-note').textContent = `${midiName(p.midi).split(' ')[0]}`;
+      $('tuner-needle').style.left = `${50 + p.cents}%`;
+      const v = judgeVoice(p.midi, expectedMelody(t), expected, key);
+      const tune = Math.abs(p.cents) <= 10 ? 'pile juste' : `${p.cents > 0 ? 'un peu haut' : 'un peu bas'} (${p.cents > 0 ? '+' : ''}${p.cents} cents)`;
+      const fits = {
+        melody: '✓ la note de la mélodie',
+        chord: '✓ dans l’accord',
+        scale: v.expected !== null ? `≈ dans la gamme (mélodie : ${noteName(v.expected, fl)})` : '≈ dans la gamme',
+        outside: v.expected !== null ? `✗ hors de la tonalité (mélodie : ${noteName(v.expected, fl)})` : '✗ hors de la tonalité',
+      }[v.fit];
+      $('pl-voice-verdict').textContent = `${fits} · ${tune}`;
+      const good = v.inTune && (v.fit === 'melody' || v.fit === 'chord');
+      const mid = v.fit !== 'outside';
+      box.classList.add(good ? 'ok' : mid ? 'close' : 'wrong');
+      voiceScore.total++;
+      voiceScore.ok += good ? 1 : mid ? 0.5 : 0;
+    }
+  }
+
+  // score de la séance
+  let ok = 0;
+  let total = 0;
+  for (const v of tallies.values()) {
+    ok += v.ok;
+    total += v.total;
+  }
+  const parts: string[] = [];
+  if (practiceMode !== 'voice' && total) parts.push(`Accords : <strong>${Math.round((ok / total) * 100)} %</strong> justes`);
+  if (practiceMode !== 'instrument' && voiceScore.total)
+    parts.push(`Voix : <strong>${Math.round((voiceScore.ok / voiceScore.total) * 100)} %</strong> juste`);
+  if (parts.length) $('pl-score').innerHTML = parts.join(' · ');
+}
+
+function applyResult(chip: HTMLElement, tl: { ok: number; total: number }) {
+  const r = tl.ok / tl.total;
+  chip.classList.remove('res-ok', 'res-mid', 'res-ko');
+  chip.classList.add(r >= 0.7 ? 'res-ok' : r >= 0.4 ? 'res-mid' : 'res-ko');
+  chip.title = `Joué juste ${Math.round(r * 100)} % du temps`;
+}
+renderPracticeMode();
 
 /** Durée d'un temps (s) d'après le tempo détecté, ou null s'il est inconnu. */
 function beatSeconds(): number | null {

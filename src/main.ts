@@ -142,6 +142,7 @@ fileInput.addEventListener('change', () => {
 function setProgress(fraction: number | null, label = '') {
   progress.hidden = fraction === null;
   if (fraction === null) return;
+  if (steps.length && label) setStep(stepFromLabel(label), 'active');
   (progress.querySelector('.fill') as HTMLElement).style.width = `${Math.round(fraction * 100)}%`;
   (progress.querySelector('.label') as HTMLElement).textContent = label;
 }
@@ -154,6 +155,10 @@ async function loadFile(file: File) {
   stopListening(false);
   yt?.pauseVideo();
   player.hidden = false;
+  $('yt-wrap').hidden = true;
+  showView('workspace');
+  showPending();
+  startLoading(['decode', 'analyze', 'lyrics']);
   try {
     setProgress(0.02, 'Décodage du fichier…');
     const ctx = new AudioContext();
@@ -181,7 +186,11 @@ async function loadFile(file: File) {
     void loadLyrics(file.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' '), '', analysis.duration, null);
   } catch (err) {
     console.error(err);
-    setProgress(1, `Impossible de lire ce fichier : ${(err as Error).message}`);
+    setProgress(null);
+    const active = steps.find((x) => x.state === 'active') ?? steps[0];
+    setStep(active.id, 'error', `Impossible de lire ce fichier : ${(err as Error).message}`);
+    finishLoading();
+    showFailed();
   }
 }
 
@@ -192,12 +201,127 @@ let recorder: TabRecorder | null = null;
 let liveTimer = 0;
 let liveBusy = false;
 
-function showTab(name: string) {
-  document.querySelectorAll<HTMLElement>('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
-  document.querySelectorAll<HTMLElement>('.tab-panel').forEach((p) => (p.hidden = p.id !== `panel-${name}`));
-  if (name === 'catalogue') refreshCatalogue();
+// ---------------------------------------------------------------- navigation
+/** Accueil (catalogue, fichiers) ou espace de jeu (chanson ouverte). */
+function showView(view: 'home' | 'workspace') {
+  $('home').hidden = view !== 'home';
+  $('workspace').hidden = view !== 'workspace';
+  if (view === 'home') refreshCatalogue();
+  window.scrollTo({ top: 0 });
+  updateMiniNow();
 }
-document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => (tab.onclick = () => showTab(tab.dataset.tab!)));
+$('go-home').onclick = () => showView('home');
+$('open-catalogue').onclick = () => {
+  showView('home');
+  $('cat-search').focus();
+};
+const voiceDialog = $<HTMLDialogElement>('voice-dialog');
+$('open-voice').onclick = () => voiceDialog.showModal();
+// fermer en cliquant à côté
+voiceDialog.addEventListener('click', (e) => {
+  if (e.target === voiceDialog) voiceDialog.close();
+});
+
+/** Onglets de la partition : paroles, grille, doigtés (choix retenu). */
+function showSheetView(view: string) {
+  document.querySelectorAll<HTMLElement>('.sheet .tab').forEach((t) => t.classList.toggle('active', t.dataset.view === view));
+  document.querySelectorAll<HTMLElement>('.sheet .view').forEach((v) => (v.hidden = v.dataset.view !== view));
+  try {
+    localStorage.setItem('easymusic.sheetView', view);
+  } catch {
+    /* ignore */
+  }
+}
+document.querySelectorAll<HTMLButtonElement>('.sheet .tab').forEach((t) => (t.onclick = () => showSheetView(t.dataset.view!)));
+try {
+  showSheetView(localStorage.getItem('easymusic.sheetView') ?? 'lyrics');
+} catch {
+  showSheetView('lyrics');
+}
+
+// ---------------------------------------------------------------- chargement par étapes
+type StepState = 'pending' | 'active' | 'done' | 'error';
+const STEP_LABELS: Record<string, string> = {
+  info: 'Infos de la vidéo',
+  download: 'Téléchargement de l’audio',
+  decode: 'Lecture du fichier',
+  analyze: 'Accords, tempo et tonalité',
+  lyrics: 'Paroles',
+};
+let steps: { id: string; state: StepState; note?: string }[] = [];
+let loadingStarted = 0;
+let loadingTimer = 0;
+
+function startLoading(ids: string[]) {
+  steps = ids.map((id) => ({ id, state: 'pending' as StepState }));
+  loadingStarted = performance.now();
+  $('loading').hidden = false;
+  $('yt-submit').classList.add('loading');
+  $<HTMLButtonElement>('yt-submit').disabled = true;
+  clearInterval(loadingTimer);
+  loadingTimer = window.setInterval(renderSteps, 1000);
+  renderSteps();
+}
+function setStep(id: string, state: StepState, note?: string) {
+  const st = steps.find((x) => x.id === id);
+  if (!st) return;
+  // les étapes précédentes sont forcément terminées
+  if (state === 'active' || state === 'done') for (const x of steps) {
+    if (x === st) break;
+    if (x.state !== 'error') x.state = 'done';
+  }
+  st.state = state;
+  if (note !== undefined) st.note = note;
+  renderSteps();
+  if (steps.every((x) => x.state === 'done' || x.state === 'error')) finishLoading();
+}
+function finishLoading() {
+  clearInterval(loadingTimer);
+  $('yt-submit').classList.remove('loading');
+  $<HTMLButtonElement>('yt-submit').disabled = false;
+  setTimeout(() => {
+    if (steps.every((x) => x.state === 'done')) $('loading').hidden = true;
+  }, 900);
+}
+function renderSteps() {
+  const secs = Math.round((performance.now() - loadingStarted) / 1000);
+  $('steps').innerHTML = steps
+    .map(
+      (x) =>
+        `<li class="step ${x.state}"><span class="dot"></span><span>${STEP_LABELS[x.id]}${
+          x.note ? ` <small>${escapeHtml(x.note)}</small>` : ''
+        }</span>${x.state === 'active' && secs > 2 ? `<small class="elapsed">${secs} s</small>` : ''}</li>`,
+    )
+    .join('');
+}
+/** Associe un message de progression du serveur ou de l'analyse à une étape. */
+function stepFromLabel(label: string): string {
+  if (/informations/i.test(label)) return 'info';
+  if (/téléchargement/i.test(label)) return 'download';
+  if (/décodage/i.test(label)) return 'decode';
+  return 'analyze';
+}
+
+/** Contenu d'attente pendant l'analyse. */
+function showPending() {
+  $('timeline').innerHTML = `<div class="skel-grid">${'<div class="skel chip-skel"></div>'.repeat(12)}</div>`;
+  $('lyrics').innerHTML = `<div class="skel-lines">${skeleton(10)}</div>`;
+  $('diagrams').innerHTML = '';
+  $('now-chord').innerHTML = '<span class="skel skel-inline"></span>';
+  $('next-chord').textContent = '';
+  $('now-diagram').innerHTML = '';
+  $('gauge-wrap').hidden = true;
+}
+function showFailed() {
+  $('timeline').innerHTML = '<p class="hint">Les accords n’ont pas pu être trouvés.</p>';
+  $('lyrics').innerHTML = '<p class="hint">Pas de paroles sans analyse.</p>';
+  $('now-chord').textContent = '—';
+}
+
+/** Blocs gris animés en attendant le contenu. */
+function skeleton(lines: number) {
+  return Array.from({ length: lines }, (_, i) => `<div class="skel" style="width:${55 + ((i * 37) % 40)}%"></div>`).join('');
+}
 
 // ---------------------------------------------------------------- catalogue
 // Stocké dans le navigateur de l'utilisateur (pas de compte).
@@ -246,10 +370,8 @@ function renderCatalogue() {
   });
   box.querySelectorAll<HTMLButtonElement>('.song').forEach((b) => {
     b.onclick = () => {
-      showTab('youtube');
       $<HTMLInputElement>('yt-url').value = `https://www.youtube.com/watch?v=${b.dataset.id}`;
       void loadYouTube(b.dataset.id!);
-      $('step-song').scrollIntoView({ behavior: 'smooth' });
     };
   });
 }
@@ -285,7 +407,8 @@ async function loadYouTube(url: string) {
   player.pause();
   player.removeAttribute('src');
   player.hidden = true;
-  $('timeline').innerHTML = '<p class="hint">Analyse en cours…</p>';
+  showView('workspace');
+  showPending();
   $('listen').hidden = true;
   analysisToken.cancelled = true;
   const token = (analysisToken = { cancelled: false });
@@ -311,11 +434,14 @@ async function loadYouTube(url: string) {
   // déjà dans le catalogue du navigateur : rien à demander au serveur
   const saved = getSong(id);
   if (saved && saved.analysis.version === ANALYSIS_VERSION) {
+    startLoading(['lyrics']);
     saveSong(saved); // met à jour la date d'ouverture
     openSong(saved);
     refreshCatalogue();
     return;
   }
+  startLoading(['info', 'download', 'analyze', 'lyrics']);
+  setStep('info', 'active');
   try {
     const song = await analyzeVideo(id, (f, l) => !token.cancelled && setProgress(f, l), token);
     if (token.cancelled) return;
@@ -328,7 +454,10 @@ async function loadYouTube(url: string) {
     if (token.cancelled) return;
     setProgress(null);
     ytError((err as Error).message);
-    $('timeline').innerHTML = '<p class="hint">Les accords n’ont pas pu être trouvés.</p>';
+    const active = steps.find((x) => x.state === 'active') ?? steps[0];
+    if (active) setStep(active.id, 'error', (err as Error).message);
+    finishLoading();
+    showFailed();
     // solution de secours sur ordinateur : écouter le son de l'onglet
     if (tabCaptureSupported()) {
       $('listen').hidden = false;
@@ -809,6 +938,8 @@ function render() {
   persistPrefs();
 
   // voix
+  const vt = VOICE_TYPES.find((v) => v.range.low === state.voice.low && v.range.high === state.voice.high);
+  $('voice-chip').textContent = vt ? vt.label : `${midiName(state.voice.low).split(' ')[0]}–${midiName(state.voice.high).split(' ')[0]}`;
   voiceLow.value = String(state.voice.low);
   voiceHigh.value = String(state.voice.high);
   presets.querySelectorAll<HTMLButtonElement>('.preset').forEach((b) => {
@@ -850,7 +981,7 @@ function render() {
     if (state.songRange.high - state.songRange.low > state.voice.high - state.voice.low)
       msg += 'La mélodie est plus étendue que votre tessiture : ce réglage est le meilleur compromis.';
   }
-  $('recommend').innerHTML = msg;
+  $('recommend').innerHTML = state.mode === 'voice' ? msg : '';
   // sélecteur « Original / Ma tonalité » et état du son
   const sign = (n: number) => (n > 0 ? `+${n}` : String(n));
   document.querySelectorAll<HTMLElement>('.mode').forEach((b) => b.classList.toggle('active', b.dataset.mode === state.mode));
@@ -867,10 +998,9 @@ function render() {
         ? '⏳ Préparation du son… (le son joue encore dans la tonalité précédente)'
         : '⏳ Préparation du son transposé… (le son joue encore dans la tonalité originale)';
     else if (audioStatus === 'error') st = `⚠️ Son transposé indisponible : ${audioError}`;
-    else if (state.mode === 'original') st = '🎵 Accords et son de la chanson originale.';
-    else if (!s) st = '🎤 Votre tonalité est celle de la chanson : rien à transposer.';
-    else st = `🎤 Accords et son transposés de ${sign(s)} demi-ton${Math.abs(s) > 1 ? 's' : ''} pour votre voix.`;
-    if (state.mode === 'voice' && state.octave) st += ` Chantez une octave plus ${state.octave < 0 ? 'bas' : 'haut'} que la voix originale.`;
+    // le bandeau au-dessus de l'accord dit déjà quelle tonalité est jouée : ici, seulement les messages utiles
+    else if (state.mode === 'original' && s) st = `💡 Pour votre voix : ${sign(s)} demi-ton${Math.abs(s) > 1 ? 's' : ''} → choisissez « 🎤 Ma tonalité ».`;
+    else if (state.mode === 'voice' && state.octave) st = `🎤 Chantez une octave plus ${state.octave < 0 ? 'bas' : 'haut'} que la voix originale.`;
   }
   document.querySelectorAll<HTMLElement>('.audio-state').forEach((e) => (e.textContent = st));
 
@@ -1030,8 +1160,10 @@ async function loadLyrics(title: string, author: string, duration: number, songI
   if (known !== undefined) {
     state.lyrics = known;
     lyricsStatus = known ? 'idle' : 'none';
+    setStep('lyrics', 'done', known ? '' : 'introuvables');
     return render();
   }
+  setStep('lyrics', 'active');
   state.lyrics = null;
   lyricsStatus = 'loading';
   render();
@@ -1041,9 +1173,11 @@ async function loadLyrics(title: string, author: string, duration: number, songI
     state.lyrics = l;
     lyricsStatus = l ? 'idle' : 'none';
     if (songId) saveLyrics(songId, l);
+    setStep('lyrics', 'done', l ? (l.synced ? '' : 'non synchronisées') : 'introuvables');
   } catch {
     if (token !== lyricsToken) return;
     lyricsStatus = 'error';
+    setStep('lyrics', 'done', 'indisponibles');
   }
   render();
 }
@@ -1133,7 +1267,7 @@ function renderLyrics() {
   sheet = [];
   lyricLine = -1;
   if (!state.analysis) return;
-  if (lyricsStatus === 'loading') return void (box.innerHTML = '<p class="hint">Recherche des paroles…</p>');
+  if (lyricsStatus === 'loading') return void (box.innerHTML = `<p class="hint">Recherche des paroles…</p><div class="skel-lines">${skeleton(8)}</div>`);
   if (lyricsStatus === 'error') return void (box.innerHTML = '<p class="hint">Paroles indisponibles pour le moment.</p>');
   if (!l) return void (box.innerHTML = '<p class="hint">Paroles introuvables pour ce morceau.</p>');
   if (!l.synced) {
@@ -1397,9 +1531,32 @@ function updateGauge() {
   $('gauge-label').innerHTML = label + nextLabel;
 }
 
+// ---------------------------------------------------------------- barre fixe sur téléphone
+let nowVisible = true;
+new IntersectionObserver((entries) => {
+  nowVisible = entries[0].isIntersecting;
+  updateMiniNow();
+}).observe($('now-playing'));
+function updateMiniNow() {
+  const show = !nowVisible && !$('workspace').hidden && !!state.analysis && window.innerWidth < 900;
+  $('mini-now').hidden = !show;
+  document.body.classList.toggle('has-mini', show);
+}
+window.addEventListener('resize', updateMiniNow);
+function tickMini() {
+  if ($('mini-now').hidden) return;
+  $('mini-chord').textContent = $('now-chord').textContent;
+  $('mini-next').textContent = $('next-chord').textContent;
+  const seg = state.currentIdx >= 0 ? segs[state.currentIdx] : undefined;
+  const r = seg ? Math.max(0, Math.min(1, (mediaTime() - seg.start) / (seg.end - seg.start))) : 0;
+  $('mini-fill').style.width = `${r * 100}%`;
+  $('mini-now').classList.toggle('last', $('gauge').classList.contains('last'));
+}
+
 function tick() {
   updateNow();
   updateGauge();
+  tickMini();
   updateLyrics();
   if (followingAudio() && !player.paused && performance.now() - ytCommandAt > 1500) {
     const drift = yt!.getCurrentTime() - player.currentTime;

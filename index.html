@@ -2,137 +2,92 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>EasyMusic — accords & transposition</title>
     <meta name="description" content="Trouvez les accords de guitare de n'importe quelle chanson et transposez-la dans la tessiture de votre voix." />
+    <meta name="theme-color" content="#d9622b" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <header class="top">
-      <h1>🎸 EasyMusic</h1>
-      <p class="tagline">Les accords de guitare de n'importe quelle chanson, transposés pour <em>votre</em> voix.</p>
+    <!-- Barre du haut : toujours là pour charger une chanson -->
+    <header class="appbar">
+      <button class="brand" id="go-home" title="Accueil et catalogue">🎸 <span>EasyMusic</span></button>
+      <form class="yt-form" id="yt-form">
+        <input type="url" id="yt-url" placeholder="Collez un lien YouTube…" required autocomplete="off" />
+        <button class="btn primary" type="submit" id="yt-submit"><span class="spinner" aria-hidden="true"></span><span class="lbl">Charger</span></button>
+      </form>
+      <nav class="appbar-actions">
+        <button class="btn ghost" id="open-catalogue" title="Mon catalogue">📚 <span class="hide-sm">Catalogue</span> <span class="count" id="cat-count"></span></button>
+        <button class="btn ghost" id="open-voice" title="Ma voix">🎤 <span class="hide-sm" id="voice-chip">Ma voix</span></button>
+      </nav>
     </header>
+    <p class="app-error" id="yt-error"></p>
 
-    <main>
-      <!-- 1. Chanson -->
-      <section class="card" id="step-song">
-        <h2><span class="num">1</span> Choisissez une chanson</h2>
-        <div class="tabs" role="tablist">
-          <button class="tab active" data-tab="youtube" role="tab">▶️ YouTube</button>
-          <button class="tab" data-tab="catalogue" role="tab">📚 Catalogue <span class="count" id="cat-count"></span></button>
-          <button class="tab" data-tab="file" role="tab">📁 Fichier</button>
-        </div>
-        <div class="tab-panel" id="panel-youtube">
-          <form class="yt-form" id="yt-form">
-            <input type="url" id="yt-url" placeholder="Collez un lien YouTube : https://www.youtube.com/watch?v=…" required />
-            <button class="btn primary" type="submit">Charger</button>
-          </form>
-          <p class="small" id="yt-error"></p>
-          <div class="yt-wrap" id="yt-wrap" hidden><div id="yt-player"></div></div>
-          <p class="small" id="analysis-state"></p>
-          <div class="listen" id="listen" hidden>
-            <button class="btn primary" id="listen-btn">🎧 Écouter et analyser</button>
-            <div class="level" title="Niveau du son reçu"><div class="level-fill" id="level-fill"></div></div>
-            <span class="small" id="listen-state"></span>
-          </div>
-          <details class="small how">
-            <summary>Comment ça marche ?</summary>
-            Collez le lien d'une vidéo : le serveur récupère sa piste audio, trouve les accords puis
-            <strong>supprime l'audio</strong> et vous renvoie seulement les accords. La vidéo se lit ensuite
-            dans le lecteur YouTube et les accords défilent en même temps. Votre catalogue (et vos réglages de
-            transposition) est enregistré dans ce navigateur : une chanson déjà analysée s'ouvre instantanément.
-          </details>
-        </div>
-        <div class="tab-panel" id="panel-catalogue" hidden>
+    <!-- Accueil : catalogue et fichiers -->
+    <main id="home" class="home">
+      <section class="hero">
+        <h1>Les accords de n'importe quelle chanson, <em>dans votre voix</em>.</h1>
+        <p class="hint">
+          Collez un lien YouTube en haut : EasyMusic trouve les accords, les paroles, et les transpose pour votre voix.
+        </p>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>📚 Mes chansons</h2>
           <input type="search" id="cat-search" class="search" placeholder="Rechercher un titre ou un artiste…" />
-          <div class="catalogue" id="catalogue"><p class="hint">Chargement…</p></div>
         </div>
-        <div class="tab-panel" id="panel-file" hidden>
+        <div class="catalogue" id="catalogue"><p class="hint">Chargement…</p></div>
+      </section>
+
+      <section class="card" id="step-song">
+        <h2>📁 Un fichier audio</h2>
         <label class="drop" id="drop">
           <input type="file" id="file" accept="audio/*,video/*" hidden />
           <span class="drop-icon">🎵</span>
           <span><strong>Déposez un fichier audio</strong> ou cliquez pour parcourir</span>
-          <small>MP3, WAV, M4A, OGG, FLAC… L'analyse se fait entièrement dans votre navigateur.</small>
+          <small>MP3, WAV, M4A, OGG, FLAC… Analysé directement dans votre navigateur.</small>
         </label>
+        <details class="small how">
+          <summary>Comment ça marche ?</summary>
+          Pour une vidéo YouTube, le serveur récupère sa piste audio, trouve les accords puis <strong>supprime l'audio</strong>.
+          La vidéo se lit dans le lecteur YouTube et les accords défilent en même temps. Votre catalogue et vos réglages
+          sont enregistrés dans ce navigateur.
+        </details>
+      </section>
+    </main>
+
+    <!-- Espace de jeu -->
+    <main id="workspace" class="workspace" hidden>
+      <!-- colonne gauche : écouter, voir l'accord, régler -->
+      <aside class="stage">
+        <div class="media">
+          <div class="yt-wrap" id="yt-wrap" hidden><div id="yt-player"></div></div>
+          <div id="player-wrap" hidden>
+            <audio id="player" controls preload="auto"></audio>
+          </div>
         </div>
-        <div id="progress" class="progress" hidden>
-          <div class="bar"><div class="fill"></div></div>
-          <span class="label"></span>
-        </div>
-        <div id="player-wrap" hidden>
+        <div class="song-head">
           <div class="song-title" id="song-title"></div>
-          <audio id="player" controls preload="auto"></audio>
           <div class="song-meta" id="song-meta"></div>
         </div>
-      </section>
 
-      <!-- 2. Voix -->
-      <section class="card" id="step-voice">
-        <h2><span class="num">2</span> Votre voix</h2>
-        <p class="hint">Faites le test au micro, ou choisissez votre type de voix.</p>
-        <div class="voice-grid">
-          <div class="mic-box">
-            <button id="mic-btn" class="btn primary">🎤 Tester ma voix</button>
-            <p class="hint small" id="mic-help">
-              Chantez « Ah » de votre note la plus <strong>grave</strong> à votre note la plus <strong>aiguë</strong>
-              (confortables), en glissant lentement. Puis cliquez sur « Terminer ».
-            </p>
-            <div class="live-note" id="live-note">—</div>
-            <div class="small" id="mic-range"></div>
-          </div>
-          <div>
-            <div class="presets" id="presets"></div>
+        <!-- chargement par étapes -->
+        <div class="loading" id="loading" hidden>
+          <ol class="steps" id="steps"></ol>
+          <div id="progress" class="progress" hidden>
+            <div class="bar"><div class="fill"></div></div>
+            <span class="label"></span>
           </div>
         </div>
-        <div class="range-edit">
-          <label>Ma note la plus grave <select id="voice-low"></select></label>
-          <label>Ma note la plus aiguë <select id="voice-high"></select></label>
+        <div class="listen" id="listen" hidden>
+          <button class="btn primary" id="listen-btn">🎧 Écouter et analyser</button>
+          <div class="level" title="Niveau du son reçu"><div class="level-fill" id="level-fill"></div></div>
+          <span class="small" id="listen-state"></span>
         </div>
-      </section>
 
-      <!-- 3. Transposition -->
-      <section class="card" id="step-transpose">
-        <h2><span class="num">3</span> Transposition</h2>
-        <div class="range-edit">
-          <label>Note la plus grave de la mélodie <select id="song-low"></select></label>
-          <label>Note la plus aiguë de la mélodie <select id="song-high"></select></label>
-        </div>
-        <p class="hint small" id="song-range-hint">Chargez une chanson pour estimer automatiquement la tessiture de la mélodie.</p>
-        <div id="range-viz" class="range-viz"></div>
-        <div class="transpose-row">
-          <button class="btn" id="t-minus" aria-label="Descendre d'un demi-ton">−</button>
-          <div class="t-value"><span id="t-value">0</span><small>demi-tons</small></div>
-          <button class="btn" id="t-plus" aria-label="Monter d'un demi-ton">+</button>
-          <button class="btn" id="t-auto">✨ Adapter à ma voix</button>
-        </div>
-        <p class="recommend" id="recommend"></p>
-        <h3>Jouer et écouter dans…</h3>
-        <div class="mode-switch" role="group" aria-label="Tonalité jouée">
-          <button class="mode" data-mode="original"><span>🎵 Original</span><small class="mode-key-orig"></small></button>
-          <button class="mode" data-mode="voice"><span>🎤 Ma tonalité</span><small class="mode-key-voice"></small></button>
-        </div>
-        <div class="apply-row">
-          <span class="small audio-state"></span>
-          <a class="btn" id="download" hidden>⬇️ Télécharger</a>
-        </div>
-      </section>
-
-      <!-- 4. Accords -->
-      <section class="card" id="step-chords">
-        <h2><span class="num">4</span> Les accords</h2>
-        <div class="mode-switch" role="group" aria-label="Tonalité jouée">
-          <button class="mode" data-mode="original"><span>🎵 Original</span><small class="mode-key-orig"></small></button>
-          <button class="mode" data-mode="voice"><span>🎤 Ma tonalité</span><small class="mode-key-voice"></small></button>
-        </div>
-        <p class="small audio-state"></p>
-        <div class="chord-toolbar">
-          <label>Capodastre <select id="capo"></select></label>
-          <label title="Remplace 7, maj7, sus… par des accords majeurs/mineurs simples"><input type="checkbox" id="simple" checked /> Accords simplifiés</label>
-          <label><input type="checkbox" id="flats" /> Écrire en bémols</label>
-          <span class="small" id="capo-hint"></span>
-          <button class="btn small-btn" id="copy">📋 Copier la grille</button>
-        </div>
-        <div class="now-playing">
+        <!-- accord en cours -->
+        <div class="now-playing" id="now-playing">
           <p class="key-banner" id="key-banner"></p>
           <div><small>Maintenant</small><div class="big-chord" id="now-chord">—</div></div>
           <div><small>Ensuite</small><div class="next-chord" id="next-chord">—</div></div>
@@ -142,6 +97,28 @@
             <div class="gauge-label" id="gauge-label"></div>
           </div>
         </div>
+
+        <!-- réglages rapides -->
+        <div class="controls card-lite">
+          <div class="mode-switch" role="group" aria-label="Tonalité jouée">
+            <button class="mode" data-mode="original"><span>🎵 Original</span><small class="mode-key-orig"></small></button>
+            <button class="mode" data-mode="voice"><span>🎤 Ma tonalité</span><small class="mode-key-voice"></small></button>
+          </div>
+          <p class="small audio-state"></p>
+          <div class="control-row">
+            <div class="stepper" title="Transposition (demi-tons)">
+              <button class="btn" id="t-minus" aria-label="Descendre d'un demi-ton">−</button>
+              <div class="t-value"><span id="t-value">0</span><small>demi-tons</small></div>
+              <button class="btn" id="t-plus" aria-label="Monter d'un demi-ton">+</button>
+            </div>
+            <button class="btn" id="t-auto" title="Choisir la meilleure tonalité pour ma voix">✨ Adapter à ma voix</button>
+            <label class="inline">Capo <select id="capo"></select></label>
+          </div>
+          <p class="recommend small" id="recommend"></p>
+          <p class="small capo-hint" id="capo-hint"></p>
+        </div>
+
+        <!-- micro -->
         <section class="practice" id="practice">
           <div class="practice-head">
             <strong>🎙️ Vérifier mon jeu</strong>
@@ -152,7 +129,7 @@
             </div>
             <button class="btn primary" id="practice-btn">▶ Démarrer</button>
           </div>
-          <p class="small practice-tip">🎧 Mettez un casque ou des écouteurs : sinon le micro entend aussi la musique et tout paraît juste.</p>
+          <p class="small practice-tip">🎧 Avec un casque ou des écouteurs : sinon le micro entend aussi la musique.</p>
           <div class="practice-live" id="practice-live" hidden>
             <div class="pl-box" id="pl-chord-box">
               <small>Vous jouez</small>
@@ -168,26 +145,92 @@
             <div class="pl-score" id="pl-score"></div>
           </div>
         </section>
-        <div class="timeline" id="timeline"><p class="hint">Les accords apparaîtront ici après l'analyse.</p></div>
-        <div class="lyrics-head">
-          <h3>Paroles</h3>
-          <span class="small" id="lyrics-source"></span>
-          <span class="lyrics-offset" id="lyrics-offset-box" hidden>
-            <button class="btn small-btn" id="lyr-minus" title="Paroles plus tôt">−0,5 s</button>
-            <span class="small" id="lyr-offset">0 s</span>
-            <button class="btn small-btn" id="lyr-plus" title="Paroles plus tard">+0,5 s</button>
-          </span>
+      </aside>
+
+      <!-- colonne droite : la partition -->
+      <section class="sheet card" id="step-chords">
+        <div class="sheet-head">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-view="lyrics" role="tab">🎤 Paroles</button>
+            <button class="tab" data-view="grid" role="tab">🎼 Grille</button>
+            <button class="tab" data-view="diagrams" role="tab">✋ Doigtés</button>
+          </div>
+          <div class="sheet-tools">
+            <label title="Remplace 7, maj7, sus… par des accords majeurs/mineurs simples"><input type="checkbox" id="simple" checked /> Simplifiés</label>
+            <label><input type="checkbox" id="flats" /> Bémols</label>
+            <button class="btn small-btn" id="copy" title="Copier la grille d'accords">📋 Copier</button>
+            <a class="btn small-btn" id="download" hidden>⬇️ Audio</a>
+          </div>
         </div>
-        <div class="lyrics" id="lyrics"><p class="hint">Les paroles apparaîtront ici après l'analyse.</p></div>
-        <h3>Doigtés</h3>
-        <div class="diagrams" id="diagrams"></div>
+
+        <div class="view" data-view="lyrics">
+          <div class="lyrics-head">
+            <span class="small" id="lyrics-source"></span>
+            <span class="lyrics-offset" id="lyrics-offset-box" hidden>
+              <span class="small">Décalage</span>
+              <button class="btn small-btn" id="lyr-minus" title="Paroles plus tôt">−0,5 s</button>
+              <span class="small" id="lyr-offset">0 s</span>
+              <button class="btn small-btn" id="lyr-plus" title="Paroles plus tard">+0,5 s</button>
+            </span>
+          </div>
+          <div class="lyrics" id="lyrics"></div>
+        </div>
+        <div class="view" data-view="grid" hidden>
+          <div class="timeline" id="timeline"></div>
+        </div>
+        <div class="view" data-view="diagrams" hidden>
+          <div class="diagrams" id="diagrams"></div>
+        </div>
       </section>
     </main>
 
+    <!-- barre fixe (téléphone) : l'accord en cours quand il n'est plus à l'écran -->
+    <div class="mini-now" id="mini-now" hidden>
+      <div class="mini-chord" id="mini-chord">—</div>
+      <div class="mini-next"><small>ensuite</small> <span id="mini-next">—</span></div>
+      <div class="mini-gauge"><div id="mini-fill"></div></div>
+    </div>
+
+    <!-- panneau « Ma voix » -->
+    <dialog class="voice-dialog" id="voice-dialog">
+      <form method="dialog" class="dialog-head">
+        <h2>🎤 Ma voix</h2>
+        <button class="btn ghost" aria-label="Fermer">✕</button>
+      </form>
+      <section id="step-voice">
+        <p class="hint">Faites le test au micro, ou choisissez votre type de voix.</p>
+        <div class="voice-grid">
+          <div class="mic-box">
+            <button id="mic-btn" class="btn primary">🎤 Tester ma voix</button>
+            <p class="hint small" id="mic-help">
+              Chantez « Ah » de votre note la plus <strong>grave</strong> à votre note la plus <strong>aiguë</strong>
+              (confortables), en glissant lentement. Puis cliquez sur « Terminer ».
+            </p>
+            <div class="live-note" id="live-note">—</div>
+            <div class="small" id="mic-range"></div>
+          </div>
+          <div class="presets" id="presets"></div>
+        </div>
+        <div class="range-edit">
+          <label>Ma note la plus grave <select id="voice-low"></select></label>
+          <label>Ma note la plus aiguë <select id="voice-high"></select></label>
+        </div>
+      </section>
+      <section id="step-transpose">
+        <h3>La mélodie de la chanson</h3>
+        <div class="range-edit">
+          <label>Note la plus grave <select id="song-low"></select></label>
+          <label>Note la plus aiguë <select id="song-high"></select></label>
+        </div>
+        <p class="hint small" id="song-range-hint"></p>
+        <div id="range-viz" class="range-viz"></div>
+      </section>
+    </dialog>
+
     <footer>
       <p>
-        La détection automatique d'accords est une estimation : elle fonctionne au mieux sur des enregistrements clairs.
-        Utilisez uniquement des fichiers que vous avez le droit d'utiliser.
+        La détection automatique d'accords est une estimation. Utilisez uniquement des contenus que vous avez le droit
+        d'utiliser.
       </p>
     </footer>
     <script type="module" src="/src/main.ts"></script>

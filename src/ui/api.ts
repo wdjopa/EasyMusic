@@ -1,5 +1,6 @@
 // Client de l'API du serveur (catalogue et analyses YouTube).
 import type { AnalysisResult } from '../dsp/analyze';
+import type { Lyrics } from '../shared/lyrics';
 
 /** Résultat d'analyse renvoyé par le serveur. */
 export interface Song {
@@ -66,4 +67,14 @@ export async function prepareTransposedAudio(videoId: string, semitones: number)
     body: JSON.stringify({ semitones }),
   });
   return r.url;
+}
+
+/** Cherche les paroles d'un morceau ; null si introuvables. */
+export async function fetchLyrics(title: string, author: string, duration?: number): Promise<Lyrics | null> {
+  const q = new URLSearchParams({ title, author, ...(duration ? { duration: String(Math.round(duration)) } : {}) });
+  const r = await fetch(`/api/lyrics?${q}`);
+  if (r.status === 404) return null;
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.error ?? `Erreur du serveur (${r.status})`);
+  return body.lyrics as Lyrics;
 }

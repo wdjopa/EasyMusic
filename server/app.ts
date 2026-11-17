@@ -6,6 +6,8 @@ import { extname, join, normalize } from 'node:path';
 import { parseYouTubeId } from '../src/shared/youtubeId';
 import type { AudioCache } from './audioCache';
 import type { Job, JobQueue } from './jobs';
+import { findLyrics } from './lyrics';
+import type { Lyrics } from '../src/shared/lyrics';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -75,11 +77,14 @@ export function createApp(opts: {
   queue: JobQueue;
   staticDir?: string;
   rateLimitPerHour: number;
+  /** Recherche de paroles (remplaçable dans les tests). */
+  findLyrics?: typeof findLyrics;
   /** Lecture transposée des vidéos (facultatif). */
   audio?: { cache: AudioCache; download: (id: string) => Promise<void> };
 }) {
   const { queue, staticDir, audio } = opts;
   const limiter = new RateLimiter(opts.rateLimitPerHour);
+  const lyricsCache = new Map<string, Lyrics | null>();
 
   async function serveStatic(req: IncomingMessage, res: ServerResponse, path: string) {
     if (!staticDir) return json(res, 404, { error: 'Introuvable' });
@@ -154,6 +159,27 @@ export function createApp(opts: {
         const file = await audio.cache.ready(a[1], Number(a[2]));
         if (!file) return json(res, 404, { error: 'Audio expiré : relancez la lecture.' });
         return await serveFile(req, res, file, audio.cache.format.mime);
+      }
+
+      if (path === '/api/lyrics' && req.method === 'GET') {
+        const title = url.searchParams.get('title')?.slice(0, 300) ?? '';
+        if (!title.trim()) return json(res, 400, { error: 'Titre manquant.' });
+        const cacheKey = `${title}|${url.searchParams.get('author') ?? ''}`;
+        let lyrics = lyricsCache.get(cacheKey);
+        if (lyrics === undefined) {
+          try {
+            lyrics = await (opts.findLyrics ?? findLyrics)({
+              title,
+              author: url.searchParams.get('author')?.slice(0, 200) ?? '',
+              duration: Number(url.searchParams.get('duration')) || undefined,
+            });
+          } catch (e) {
+            return json(res, 502, { error: `Paroles indisponibles : ${(e as Error).message}` });
+          }
+          lyricsCache.set(cacheKey, lyrics);
+          if (lyricsCache.size > 500) lyricsCache.delete(lyricsCache.keys().next().value!);
+        }
+        return lyrics ? json(res, 200, { lyrics }) : json(res, 404, { error: 'Paroles introuvables pour ce morceau.' });
       }
 
       if (path.startsWith('/api/')) return json(res, 404, { error: 'Introuvable' });

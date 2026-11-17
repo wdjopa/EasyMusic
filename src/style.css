@@ -217,3 +217,24 @@ select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid 
 .gauge-label strong { color: var(--text); }
 .gauge.last + .gauge-label .soon { color: var(--accent); font-weight: 700; }
 .next-chord.soon { color: var(--accent); }
+
+/* paroles avec accords au-dessus, comme une grille de musicien */
+.lyrics-head { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-top: 20px; }
+.lyrics-head h3 { margin: 0; }
+.lyrics-offset { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.lyrics-offset .small-btn { margin: 0; }
+.lyrics {
+  margin-top: 8px; max-height: 420px; overflow: auto; padding: 8px 4px; border: 1px solid var(--line); border-radius: 12px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 15px;
+}
+.lyric { cursor: pointer; padding: 2px 8px; border-radius: 8px; white-space: pre; width: max-content; min-width: 100%; }
+.lyric:hover { background: var(--bg); }
+.lyric.current { background: var(--accent-soft); }
+.lyric .chords { position: relative; height: 1.35em; }
+.lyric .chords span { position: absolute; top: 0; font-weight: 700; color: var(--accent); }
+.lyric .chords span.held { color: var(--muted); font-weight: 600; }
+.lyric .text { line-height: 1.5; }
+.lyric.instru .text { color: var(--muted); font-style: italic; }
+.lyric.current .text { font-weight: 700; }
+.lyrics .plain { white-space: pre-wrap; font-family: inherit; margin: 0; }
+@media (max-width: 480px) { .lyrics { font-size: 13.5px; } }

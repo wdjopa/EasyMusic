@@ -20,8 +20,9 @@ import {
   transposeKey,
   VOICE_TYPES,
 } from './music/theory';
-import { analyzeVideo, prepareTransposedAudio } from './ui/api';
-import { getSong, listSongs, removeSong, savePrefs, saveSong, type LibrarySong } from './ui/library';
+import { analyzeVideo, fetchLyrics, prepareTransposedAudio } from './ui/api';
+import type { Lyrics } from './shared/lyrics';
+import { getSong, listSongs, removeSong, saveLyrics, savePrefs, saveSong, type LibrarySong } from './ui/library';
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
 import { startMic, type MicSession } from './ui/mic';
 import { createPlayer, parseYouTubeId, YT_STATE, type YTPlayer } from './ui/youtube';
@@ -42,6 +43,8 @@ const state = {
   octave: 0,
   /** « original » : accords et son de la chanson ; « voice » : accords et son transposés pour la voix. */
   mode: loadMode(),
+  lyrics: null as Lyrics | null,
+  lyricsOffset: 0,
   simple: true,
   appliedSemitones: 0,
   capo: 0,
@@ -169,8 +172,10 @@ async function loadFile(file: File) {
     setProgress(null);
     if (state.source !== 'file' || state.file !== file) return; // une autre source a été chargée entre-temps
     state.analysis = null;
+    state.lyricsOffset = 0;
     showAnalysis(analysis);
     scheduleAudio(0);
+    void loadLyrics(file.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' '), '', analysis.duration, null);
   } catch (err) {
     console.error(err);
     setProgress(1, `Impossible de lire ce fichier : ${(err as Error).message}`);
@@ -263,6 +268,8 @@ async function loadYouTube(url: string) {
   stopListening(false);
   audioToken++;
   audioStatus = '';
+  state.lyrics = null;
+  lyricsToken++;
   yt?.unMute();
   state.source = 'youtube';
   state.file = null;
@@ -312,7 +319,7 @@ async function loadYouTube(url: string) {
     setProgress(null);
     saveSong(song);
     // une ancienne analyse refaite garde les réglages de l'utilisateur
-    openSong({ ...song, prefs: saved?.prefs });
+    openSong({ ...song, prefs: saved?.prefs, lyrics: saved?.lyrics });
     refreshCatalogue();
   } catch (err) {
     if (token.cancelled) return;
@@ -329,8 +336,10 @@ async function loadYouTube(url: string) {
 let analysisToken = { cancelled: false };
 
 /** Affiche une chanson et restaure les réglages enregistrés (transposition, capo…). */
-function openSong(song: Pick<LibrarySong, 'title' | 'analysis' | 'prefs'>) {
+function openSong(song: Pick<LibrarySong, 'title' | 'analysis' | 'prefs'> & Partial<Pick<LibrarySong, 'id' | 'author' | 'lyrics'>>) {
   $('song-title').textContent = song.title;
+  state.lyricsOffset = song.prefs?.lyricsOffset ?? 0;
+  void loadLyrics(song.title, song.author ?? '', song.analysis.duration, song.id ?? null, song.lyrics);
   state.analysis = null;
   restoringPrefs = true;
   showAnalysis(song.analysis);
@@ -359,10 +368,18 @@ function persistPrefs() {
     simple: state.simple,
     flats: state.flats,
     mode: state.mode,
+    lyricsOffset: state.lyricsOffset,
   };
   clearTimeout(prefsTimer);
-  prefsTimer = window.setTimeout(() => savePrefs(id, prefs), 300);
+  pendingPrefs = () => savePrefs(id, prefs);
+  prefsTimer = window.setTimeout(() => {
+    pendingPrefs?.();
+    pendingPrefs = null;
+  }, 300);
 }
+let pendingPrefs: (() => void) | null = null;
+// ne rien perdre si la page est fermée juste après un réglage
+window.addEventListener('pagehide', () => pendingPrefs?.());
 
 function onYtState(s: number) {
   ytState = s;
@@ -893,6 +910,7 @@ function render() {
   }
 
   renderTimeline();
+  renderLyrics();
   renderDiagrams();
   state.currentIdx = -1;
   updateNow();
@@ -997,6 +1015,155 @@ function updateNow() {
   $('now-diagram').innerHTML = sc ? chordDiagramSvg(chordName(sc, f), voicingsFor(sc)[0]) : '';
 }
 
+// ---------------------------------------------------------------- paroles
+let lyricsToken = 0;
+let lyricsStatus: 'idle' | 'loading' | 'none' | 'error' = 'idle';
+
+/** Charge les paroles (depuis le catalogue si déjà connues, sinon via le serveur). */
+async function loadLyrics(title: string, author: string, duration: number, songId: string | null, known?: Lyrics | null) {
+  const token = ++lyricsToken;
+  if (known !== undefined) {
+    state.lyrics = known;
+    lyricsStatus = known ? 'idle' : 'none';
+    return render();
+  }
+  state.lyrics = null;
+  lyricsStatus = 'loading';
+  render();
+  try {
+    const l = await fetchLyrics(title, author, duration);
+    if (token !== lyricsToken) return;
+    state.lyrics = l;
+    lyricsStatus = l ? 'idle' : 'none';
+    if (songId) saveLyrics(songId, l);
+  } catch {
+    if (token !== lyricsToken) return;
+    lyricsStatus = 'error';
+  }
+  render();
+}
+
+$('lyr-minus').onclick = () => shiftLyrics(-0.5);
+$('lyr-plus').onclick = () => shiftLyrics(0.5);
+function shiftLyrics(d: number) {
+  state.lyricsOffset = Math.round((state.lyricsOffset + d) * 10) / 10;
+  render();
+}
+
+interface SheetRow {
+  start: number;
+  text: string;
+  instru: boolean;
+  chords: { pos: number; name: string; held: boolean }[];
+}
+let sheet: SheetRow[] = [];
+
+/**
+ * Grille « paroles + accords » : chaque ligne de paroles avec, au-dessus, les accords qui changent
+ * pendant qu'elle est chantée (position estimée selon le moment du changement dans la ligne).
+ */
+function buildSheet(): SheetRow[] {
+  const lines = state.lyrics?.synced;
+  if (!lines?.length || !state.analysis) return [];
+  const f = flats();
+  const off = state.lyricsOffset;
+  const end = state.analysis.duration;
+  const name = (c: Chord | null) => chordName(shapeChord(c), f);
+  const rows: SheetRow[] = [];
+  const chordRow = (from: number, to: number) => segs.filter((g) => g.chord && g.start >= from - 0.15 && g.start < to);
+  // accords consécutifs identiques (après simplification) : un seul
+  const dedupe = (list: ChordSegment[]) => list.filter((g, k) => k === 0 || name(g.chord) !== name(list[k - 1].chord));
+  const spread = (list: ChordSegment[]) => {
+    let pos = 0;
+    return dedupe(list).map((g) => {
+      const r = { pos, name: name(g.chord), held: false };
+      pos += r.name.length + 3;
+      return r;
+    });
+  };
+  // intro instrumentale
+  const first = lines[0].time + off;
+  const intro = chordRow(0, first - 0.15);
+  if (intro.length) rows.push({ start: 0, text: '♪ intro', instru: true, chords: spread(intro) });
+  lines.forEach((line, i) => {
+    const start = line.time + off;
+    const next = i + 1 < lines.length ? lines[i + 1].time + off : end;
+    const text = line.text || '♪';
+    // durée réellement chantée (estimée) : une ligne n'occupe pas forcément tout l'intervalle
+    const sung = Math.min(next - start, Math.max(1.5, text.length / 8 + 0.6));
+    const chords: SheetRow['chords'] = [];
+    const inLine = chordRow(start, start + sung);
+    const active = segs.find((g) => g.start <= start && g.end > start && g.chord);
+    if (active && !inLine.some((g) => g.start - start < sung * 0.12)) chords.push({ pos: 0, name: name(active.chord), held: true });
+    for (const g of inLine) {
+      const ratio = Math.max(0, (g.start - start) / sung);
+      chords.push({ pos: Math.round(ratio * text.length), name: name(g.chord), held: false });
+    }
+    // éviter les chevauchements
+    for (let k = 1; k < chords.length; k++) chords[k].pos = Math.max(chords[k].pos, chords[k - 1].pos + chords[k - 1].name.length + 1);
+    rows.push({ start, text, instru: !line.text, chords });
+    // passage instrumental entre deux lignes
+    const gap = chordRow(start + sung, next - 0.15);
+    if (gap.length && next - start - sung > 4) rows.push({ start: start + sung, text: '♪', instru: true, chords: spread(gap) });
+    else if (gap.length) {
+      const last = rows[rows.length - 1];
+      let pos = Math.max(text.length + 2, ...last.chords.map((c) => c.pos + c.name.length + 1));
+      for (const g of dedupe(gap)) {
+        if (last.chords.length && last.chords[last.chords.length - 1].name === name(g.chord)) continue;
+        last.chords.push({ pos, name: name(g.chord), held: false });
+        pos += name(g.chord).length + 1;
+      }
+    }
+  });
+  return rows;
+}
+
+function renderLyrics() {
+  const box = $('lyrics');
+  const offBox = $('lyrics-offset-box');
+  $('lyr-offset').textContent = `${state.lyricsOffset > 0 ? '+' : ''}${String(state.lyricsOffset).replace('.', ',')} s`;
+  const l = state.lyrics;
+  $('lyrics-source').textContent = l ? `${l.artist} — ${l.track} · source : ${l.source}` : '';
+  offBox.hidden = !l?.synced;
+  sheet = [];
+  lyricLine = -1;
+  if (!state.analysis) return;
+  if (lyricsStatus === 'loading') return void (box.innerHTML = '<p class="hint">Recherche des paroles…</p>');
+  if (lyricsStatus === 'error') return void (box.innerHTML = '<p class="hint">Paroles indisponibles pour le moment.</p>');
+  if (!l) return void (box.innerHTML = '<p class="hint">Paroles introuvables pour ce morceau.</p>');
+  if (!l.synced) {
+    box.innerHTML = `<p class="hint">Paroles non synchronisées : les accords ne peuvent pas être placés au-dessus.</p><pre class="plain">${escapeHtml(l.plain ?? '')}</pre>`;
+    return;
+  }
+  sheet = buildSheet();
+  box.innerHTML = sheet
+    .map(
+      (r, i) =>
+        `<div class="lyric${r.instru ? ' instru' : ''}" data-i="${i}"><div class="chords">${r.chords
+          .map((c) => `<span${c.held ? ' class="held"' : ''} style="left:${c.pos}ch">${escapeHtml(c.name)}</span>`)
+          .join('')}</div><div class="text">${escapeHtml(r.text)}</div></div>`,
+    )
+    .join('');
+  box.querySelectorAll<HTMLElement>('.lyric').forEach((el) => (el.onclick = () => mediaSeek(Math.max(0, sheet[+el.dataset.i!].start) + 0.01)));
+}
+
+let lyricLine = -1;
+/** Surligne la ligne en cours et fait défiler les paroles. */
+function updateLyrics() {
+  if (!sheet.length) return;
+  const t = mediaTime();
+  let i = -1;
+  for (let k = 0; k < sheet.length; k++) if (sheet[k].start <= t + 0.1) i = k;
+  if (i === lyricLine) return;
+  lyricLine = i;
+  const box = $('lyrics');
+  box.querySelector('.lyric.current')?.classList.remove('current');
+  const el = box.querySelector<HTMLElement>(`.lyric[data-i="${i}"]`);
+  el?.classList.add('current');
+  const playing = usingYt() ? ytState === YT_STATE.PLAYING : !player.paused;
+  if (el && playing) box.scrollTop = el.offsetTop - box.offsetTop - box.clientHeight / 3;
+}
+
 /** Durée d'un temps (s) d'après le tempo détecté, ou null s'il est inconnu. */
 function beatSeconds(): number | null {
   const bpm = state.analysis?.bpm;
@@ -1056,6 +1223,7 @@ function updateGauge() {
 function tick() {
   updateNow();
   updateGauge();
+  updateLyrics();
   if (followingAudio() && !player.paused && performance.now() - ytCommandAt > 1500) {
     const drift = yt!.getCurrentTime() - player.currentTime;
     if (Math.abs(drift) > 0.5) commandYt((p) => p.seekTo(player.currentTime, true));

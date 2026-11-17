@@ -1,5 +1,6 @@
 // Catalogue personnel, stocké dans le navigateur (localStorage). Pas de compte utilisateur.
 import type { AnalysisResult } from '../dsp/analyze';
+import type { Lyrics } from '../shared/lyrics';
 
 export interface SongPrefs {
   semitones: number;
@@ -8,6 +9,8 @@ export interface SongPrefs {
   simple: boolean;
   flats: boolean | null;
   mode?: 'original' | 'voice';
+  /** Décalage des paroles (s), si le clip a une intro. */
+  lyricsOffset?: number;
 }
 
 export interface LibrarySong {
@@ -20,6 +23,8 @@ export interface LibrarySong {
   openedAt: string;
   analysis: AnalysisResult;
   prefs?: SongPrefs;
+  /** Paroles (null = cherchées mais introuvables). */
+  lyrics?: Lyrics | null;
 }
 
 const KEY = 'easymusic.library.v1';
@@ -76,4 +81,12 @@ export function savePrefs(id: string, prefs: SongPrefs): void {
 
 export function removeSong(id: string): void {
   write(read().filter((s) => s.id !== id));
+}
+
+export function saveLyrics(id: string, lyrics: Lyrics | null): void {
+  const all = read();
+  const s = all.find((x) => x.id === id);
+  if (!s) return;
+  s.lyrics = lyrics;
+  write(all);
 }

@@ -14,6 +14,8 @@ const url = a[a.length - 1];
 if (url.includes('privvvvvvvv')) { console.error('ERROR: [youtube] privvvvvvvv: Private video'); process.exit(1); }
 if (url.includes('longgggggggg'.slice(0, 11))) { console.log(JSON.stringify({ title: 'Long', duration: 99999 })); process.exit(0); }
 if (a.includes('-J')) { console.log(JSON.stringify({ title: 'Chanson de test', channel: 'Artiste', duration: 16 })); process.exit(0); }
+if (url.includes('refus403000') && !a.includes('18/worst[acodec!=none]/best')) { console.error('ERROR: [download] Got error: HTTP Error 403: Forbidden'); process.exit(1); }
+if (url.includes('toujours403')) { console.error('ERROR: unable to download video data: HTTP Error 403: Forbidden'); process.exit(1); }
 const out = a[a.indexOf('-o') + 1].replace('%(ext)s', 'wav');
 for (const p of [10, 50, 100]) console.log('PROGRESS ' + p + '.0%');
 fs.copyFileSync(${JSON.stringify(wav)}, out);
@@ -39,14 +41,14 @@ beforeAll(async () => {
   const yt = join(dir, 'yt-dlp');
   await writeFile(yt, FAKE_YTDLP(wav));
   await chmod(yt, 0o755);
-  Object.assign(process.env, { YTDLP_PATH: yt, RATE_LIMIT_PER_HOUR: '5', TMPDIR: dataDir });
+  Object.assign(process.env, { YTDLP_PATH: yt, RATE_LIMIT_PER_HOUR: '8', TMPDIR: dataDir });
   await mkdir(dataDir, { recursive: true });
 
   const { JobQueue } = await import('../server/jobs');
   const { createApp } = await import('../server/app');
   const { fetchInfo, downloadAudio } = await import('../server/youtube');
   const queue = new JobQueue({ fetchInfo, downloadAudio });
-  const handler = createApp({ queue, rateLimitPerHour: 5 });
+  const handler = createApp({ queue, rateLimitPerHour: 8 });
   server = createServer((q, r) => void handler(q, r));
   await new Promise<void>((r) => server.listen(0, r));
   const addr = server.address();
@@ -85,6 +87,18 @@ describe('serveur', () => {
     expect(again.body.song.id).toBe('abcdefghijk');
   });
 
+  it('réessaie autrement quand YouTube refuse un format (403)', async () => {
+    const r = await waitJob((await post('refus403000')).body.job.id);
+    expect(r.job.status).toBe('done');
+    expect(r.song.analysis.segments.length).toBeGreaterThan(3);
+  });
+
+  it('explique clairement un refus persistant', async () => {
+    const r = await waitJob((await post('toujours403')).body.job.id);
+    expect(r.job.status).toBe('error');
+    expect(r.job.error).toMatch(/erreur 403/);
+  });
+
   it('rejette les liens invalides', async () => {
     expect((await post('https://vimeo.com/1')).status).toBe(400);
     expect((await post('; rm -rf /')).status).toBe(400);
@@ -99,7 +113,7 @@ describe('serveur', () => {
 
   it('limite le nombre d’analyses par heure', async () => {
     let last = 0;
-    for (let i = 0; i < 6; i++) last = (await post(`zzzzzzzzzz${i}`)).status;
+    for (let i = 0; i < 9; i++) last = (await post(`zzzzzzzzzz${i}`)).status;
     expect(last).toBe(429);
   });
 });

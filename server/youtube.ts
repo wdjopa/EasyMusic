@@ -14,6 +14,13 @@ export interface VideoInfo {
 
 export class UserError extends Error {}
 
+/** Refus de YouTube (403) : on peut réessayer autrement. `details` = fin du journal de yt-dlp. */
+export class DownloadRefused extends Error {
+  constructor(message: string, public details: string) {
+    super(message);
+  }
+}
+
 function baseArgs(): string[] {
   const a = ['--no-playlist', '--no-warnings', '--js-runtimes', 'node'];
   if (config.cookies) a.push('--cookies', config.cookies);
@@ -24,8 +31,9 @@ function friendlyError(stderr: string): Error {
   if (/not a bot|Sign in to confirm/i.test(stderr))
     return new Error('YouTube bloque temporairement le serveur (vérification anti-robot). Réessayez plus tard.');
   if (/HTTP Error 403/i.test(stderr))
-    return new Error(
+    return new DownloadRefused(
       'YouTube a refusé le téléchargement (erreur 403). Sur le serveur : mettre yt-dlp à jour, installer Deno, ou fournir des cookies (voir le README).',
+      stderr.trim().split('\n').slice(-12).join('\n'),
     );
   if (/Private video|Video unavailable|This video is not available|removed/i.test(stderr))
     return new UserError('Vidéo indisponible ou privée.');
@@ -73,34 +81,58 @@ export async function fetchInfo(id: string): Promise<VideoInfo> {
 }
 
 /**
+ * Stratégies de téléchargement, essayées dans l'ordre en cas de refus (403) :
+ * YouTube refuse parfois un format ou un « client » donné mais en accepte un autre.
+ */
+const STRATEGIES: { label: string; args: string[] }[] = [
+  { label: 'audio seul', args: ['-f', 'bestaudio[abr<=160]/bestaudio/best'] },
+  { label: 'vidéo basse qualité (format 18)', args: ['-f', '18/worst[acodec!=none]/best'] },
+  {
+    label: 'autres clients YouTube',
+    args: ['-f', 'bestaudio/best', '--extractor-args', 'youtube:player_client=tv,mweb,web_safari'],
+  },
+];
+
+/**
  * Télécharge l'audio dans un dossier temporaire, le décode en PCM mono,
  * puis supprime le fichier : seul le signal en mémoire est renvoyé.
  */
 export async function downloadAudio(id: string, onProgress: (fraction: number) => void): Promise<Float32Array> {
-  const dir = await mkdtemp(join(tmpdir(), 'easymusic-'));
-  try {
-    await run(
-      config.ytDlp,
-      [
-        ...baseArgs(),
-        '-f', 'bestaudio[abr<=160]/bestaudio/best',
-        '--max-filesize', '80M',
-        '--newline',
-        '--progress-template', 'download:PROGRESS %(progress._percent_str)s',
-        '-o', join(dir, 'audio.%(ext)s'),
-        '--', watchUrl(id),
-      ],
-      (line) => {
-        const m = line.match(/PROGRESS\s+([\d.]+)%/);
-        if (m) onProgress(Math.min(1, Number(m[1]) / 100));
-      },
-    );
-    const file = (await readdir(dir)).find((f) => f.startsWith('audio.'));
-    if (!file) throw new Error('Fichier audio introuvable après le téléchargement.');
-    return await decode(join(dir, file));
-  } finally {
-    await rm(dir, { recursive: true, force: true });
+  let lastError: Error | null = null;
+  for (const [i, strategy] of STRATEGIES.entries()) {
+    const dir = await mkdtemp(join(tmpdir(), 'easymusic-'));
+    try {
+      await run(
+        config.ytDlp,
+        [
+          ...baseArgs(),
+          ...strategy.args,
+          '--max-filesize', '120M',
+          '--newline',
+          '--progress-template', 'download:PROGRESS %(progress._percent_str)s',
+          '-o', join(dir, 'audio.%(ext)s'),
+          '--', watchUrl(id),
+        ],
+        (line) => {
+          const m = line.match(/PROGRESS\s+([\d.]+)%/);
+          if (m) onProgress(Math.min(1, Number(m[1]) / 100));
+        },
+      );
+      const file = (await readdir(dir)).find((f) => f.startsWith('audio.') && !f.endsWith('.part'));
+      if (!file) throw new Error('Fichier audio introuvable après le téléchargement.');
+      if (i > 0) console.log(`[yt-dlp] ${id} : réussi avec la stratégie « ${strategy.label} »`);
+      return await decode(join(dir, file));
+    } catch (e) {
+      lastError = e as Error;
+      const retryable = e instanceof DownloadRefused;
+      console.warn(`[yt-dlp] ${id} : échec (« ${strategy.label} »)${retryable && i < STRATEGIES.length - 1 ? ', nouvel essai…' : ''}`);
+      if (e instanceof DownloadRefused) console.warn(e.details);
+      if (!retryable) throw e;
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
+  throw lastError ?? new Error('Téléchargement impossible.');
 }
 
 /** Décode n'importe quel fichier audio en PCM float mono à config.sampleRate (via ffmpeg). */

@@ -853,6 +853,23 @@ function render() {
     if (state.mode === 'voice' && state.octave) st += ` Chantez une octave plus ${state.octave < 0 ? 'bas' : 'haut'} que la voix originale.`;
   }
   document.querySelectorAll<HTMLElement>('.audio-state').forEach((e) => (e.textContent = st));
+
+  // rappel bien visible au-dessus des accords : dans quelle tonalité sont-ils ?
+  const banner = $('key-banner');
+  if (!a) banner.textContent = '';
+  else {
+    const k = keyName(transposeKey(a.key, shift()), f).split(' (')[0];
+    const what =
+      state.mode === 'voice' && s
+        ? `🎤 Accords dans <strong>votre tonalité</strong> : ${k} (${sign(s)} demi-ton${Math.abs(s) > 1 ? 's' : ''} par rapport à l’original)`
+        : state.mode === 'voice'
+          ? `🎤 Votre tonalité = celle du morceau : ${k}`
+          : `🎵 Accords de la <strong>chanson originale</strong> : ${k}`;
+    const capo = state.capo
+      ? ` — capo case ${state.capo} : jouez les formes en gros ; « son » = l’accord réellement entendu.`
+      : '';
+    banner.innerHTML = what + capo;
+  }
   const dl = $<HTMLAnchorElement>('download');
   dl.hidden = !(state.source === 'file' && state.shiftedUrl && state.appliedSemitones !== 0);
   if (state.shiftedUrl) {

@@ -201,3 +201,7 @@ select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid 
 .mode.active small { color: var(--accent); }
 .audio-state { margin: 4px 0 12px; }
 .audio-state:empty { display: none; }
+
+.key-banner { flex-basis: 100%; margin: 0; font-size: 0.9rem; }
+.key-banner:empty { display: none; }
+.key-banner strong { color: var(--accent); }

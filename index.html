@@ -15,8 +15,20 @@
       <form class="yt-form" id="yt-form">
         <input type="url" id="yt-url" placeholder="Collez un lien YouTube…" required autocomplete="off" />
         <button class="btn primary" type="submit" id="yt-submit"><span class="spinner" aria-hidden="true"></span><span class="lbl">Charger</span></button>
+        <button class="btn" type="button" id="yt-queue" title="Ajouter à la file d'attente (analyse en arrière-plan)">＋</button>
       </form>
       <nav class="appbar-actions">
+        <div class="queue-anchor">
+          <button class="btn ghost" id="open-queue" title="File d'attente" hidden><span id="queue-badge"></span></button>
+          <div class="queue-panel" id="queue-panel" hidden>
+            <div class="queue-head">
+              <strong>File d'attente</strong>
+              <button class="btn small-btn" id="queue-clear">Retirer les prêtes</button>
+            </div>
+            <ul class="queue-list" id="queue-list"></ul>
+            <p class="small hint">Les chansons sont analysées en arrière-plan, sans interrompre la musique, puis rangées dans le catalogue.</p>
+          </div>
+        </div>
         <button class="btn ghost" id="open-catalogue" title="Mon catalogue">📚 <span class="hide-sm">Catalogue</span> <span class="count" id="cat-count"></span></button>
         <button class="btn ghost" id="open-voice" title="Ma voix">🎤 <span class="hide-sm" id="voice-chip">Ma voix</span></button>
       </nav>
@@ -190,6 +202,8 @@
       <div class="mini-next"><small>ensuite</small> <span id="mini-next">—</span></div>
       <div class="mini-gauge"><div id="mini-fill"></div></div>
     </div>
+
+    <div class="toast" id="toast" role="status" hidden></div>
 
     <!-- panneau « Ma voix » -->
     <dialog class="voice-dialog" id="voice-dialog">

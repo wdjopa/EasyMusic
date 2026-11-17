@@ -36,6 +36,15 @@ describe('paroles', () => {
     expect(best?.trackName).toBe('c');
   });
 
+  it('refuse des paroles d’un autre morceau', async () => {
+    const fake = async () =>
+      new Response(JSON.stringify([{ trackName: 'À ma place', artistName: 'Axel Bauer', duration: 250, syncedLyrics: '[00:01.00] x' }]));
+    expect(await findLyrics({ title: 'Chanson A (Official Video)', author: 'Test' }, fake)).toBeNull();
+    // mais accepte de petites différences d'écriture
+    const ok = async () => new Response(JSON.stringify([{ trackName: 'Alors on danse', artistName: 'Stromae', duration: 207, syncedLyrics: '[00:07.35] Alors on' }]));
+    expect(await findLyrics({ title: 'Stromae - Alors On Danse (Clip Officiel)', author: 'StromaeVEVO' }, ok)).not.toBeNull();
+  });
+
   it('interroge LRCLIB avec le titre nettoyé', async () => {
     const urls: string[] = [];
     const fake = async (url: string) => {

@@ -10,9 +10,30 @@ interface LrclibTrack {
   syncedLyrics?: string | null;
 }
 
+/** Mots significatifs d'un titre (sans accents ni ponctuation). */
+function words(t: string): string[] {
+  return t
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 1);
+}
+
+/** Vrai si le titre trouvé correspond bien au morceau cherché (la plupart de ses mots s'y retrouvent). */
+export function titleMatches(wanted: string, found: string): boolean {
+  const w = words(wanted);
+  if (!w.length) return true;
+  const f = new Set(words(found));
+  return w.filter((x) => f.has(x)).length / w.length >= 0.6;
+}
+
 /** Choisit le meilleur résultat : paroles synchronisées en priorité, puis la durée la plus proche. */
-export function pickBest(results: LrclibTrack[], duration?: number): LrclibTrack | null {
-  const usable = results.filter((r) => !r.instrumental && (r.syncedLyrics || r.plainLyrics));
+export function pickBest(results: LrclibTrack[], duration?: number, track?: string): LrclibTrack | null {
+  const usable = results.filter(
+    (r) => !r.instrumental && (r.syncedLyrics || r.plainLyrics) && (!track || titleMatches(track, `${r.trackName} ${r.artistName}`)),
+  );
   if (!usable.length) return null;
   const score = (r: LrclibTrack) =>
     (r.syncedLyrics ? 0 : 1000) + (duration ? Math.min(Math.abs(r.duration - duration), 120) : 0);
@@ -34,7 +55,8 @@ export async function findLyrics(
   };
   let results = artist && track ? await search({ track_name: track, artist_name: artist }) : [];
   if (!results.some((r) => r.syncedLyrics)) results = [...results, ...(await search({ q: query }))];
-  const best = pickBest(results, q.duration);
+  // la recherche libre renvoie toujours quelque chose : on vérifie que c'est bien le bon morceau
+  const best = pickBest(results, q.duration, track);
   if (!best) return null;
   return {
     synced: best.syncedLyrics ? parseLrc(best.syncedLyrics) : null,

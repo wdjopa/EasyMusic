@@ -38,7 +38,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
  */
 export async function analyzeVideo(
   url: string,
-  onProgress: (fraction: number, label: string) => void,
+  onProgress: (fraction: number, label: string, title?: string) => void,
   signal?: { cancelled: boolean },
 ): Promise<Song> {
   const first = await req<{ song?: Song; job: Job }>('/api/analyze', {
@@ -50,7 +50,7 @@ export async function analyzeVideo(
   let job = first.job;
   for (;;) {
     if (signal?.cancelled) throw new Error('annulé');
-    onProgress(job.progress, job.label);
+    onProgress(job.progress, job.label, job.title);
     if (job.status === 'error') throw new Error(job.error ?? 'Analyse impossible');
     await new Promise((r) => setTimeout(r, 800));
     const r = await req<{ job: Job; song?: Song }>(`/api/jobs/${job.id}`);

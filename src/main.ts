@@ -26,6 +26,7 @@ import type { Lyrics } from './shared/lyrics';
 import { getSong, listSongs, removeSong, saveLyrics, savePrefs, saveSong, type LibrarySong } from './ui/library';
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
 import { startMic, type MicSession } from './ui/mic';
+import { Queue } from './ui/queue';
 import { startPractice, type PracticeSession } from './ui/practice';
 import { judgeChord, judgeVoice, type LiveFrame, type PracticeMode } from './dsp/live';
 import { createPlayer, parseYouTubeId, YT_STATE, type YTPlayer } from './ui/youtube';
@@ -377,10 +378,106 @@ function renderCatalogue() {
 }
 $('cat-search').addEventListener('input', renderCatalogue);
 
+const isPlaying = () => (usingYt() ? ytState === YT_STATE.PLAYING : !!state.analysis && !player.paused);
+
 $('yt-form').addEventListener('submit', (e) => {
   e.preventDefault();
-  void loadYouTube($<HTMLInputElement>('yt-url').value);
+  const url = $<HTMLInputElement>('yt-url').value;
+  // une chanson joue : on ne l'interrompt pas, la nouvelle part en file d'attente
+  if (isPlaying() && parseYouTubeId(url) !== currentSongId) return enqueue(url, true);
+  void loadYouTube(url);
 });
+$('yt-queue').onclick = () => enqueue($<HTMLInputElement>('yt-url').value, false);
+
+// ---------------------------------------------------------------- file d'attente
+const queue = new Queue();
+let toastTimer = 0;
+function toast(html: string, action?: { label: string; run: () => void }) {
+  const t = $('toast');
+  t.innerHTML = `<span>${html}</span>`;
+  if (action) {
+    const b = document.createElement('button');
+    b.className = 'btn small-btn';
+    b.textContent = action.label;
+    b.onclick = () => {
+      t.hidden = true;
+      action.run();
+    };
+    t.append(b);
+  }
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => (t.hidden = true), 6000);
+}
+
+function enqueue(url: string, becausePlaying: boolean) {
+  const item = queue.add(url);
+  if (!item) return ytError('Ce lien ne ressemble pas à une vidéo YouTube.');
+  ytError('');
+  $<HTMLInputElement>('yt-url').value = '';
+  toast(
+    item.status === 'done'
+      ? 'Déjà prête dans votre catalogue.'
+      : `${becausePlaying ? 'La musique continue : ' : ''}ajoutée à la file, analyse en arrière-plan.`,
+    { label: 'Ouvrir maintenant', run: () => void loadYouTube(item.id) },
+  );
+}
+
+function renderQueue() {
+  const btn = $('open-queue');
+  btn.hidden = queue.items.length === 0;
+  const pending = queue.pending;
+  $('queue-badge').innerHTML = pending
+    ? `<span class="spinner dark"></span> ${pending} en cours`
+    : `✅ ${queue.ready} prête${queue.ready > 1 ? 's' : ''}`;
+  btn.classList.toggle('has-ready', !pending && queue.ready > 0);
+  const label = { waiting: 'En attente', running: '', done: 'Prête', error: 'Erreur' };
+  $('queue-list').innerHTML = queue.items
+    .map(
+      (i) => `<li class="q-item ${i.status}">
+        <img src="https://i.ytimg.com/vi/${i.id}/default.jpg" alt="" loading="lazy" />
+        <div class="q-info">
+          <div class="q-title">${escapeHtml(i.title)}</div>
+          <div class="q-state">${escapeHtml(i.status === 'running' ? i.label : i.status === 'error' ? i.error ?? 'Erreur' : label[i.status])}</div>
+          ${i.status === 'running' ? `<div class="q-bar"><div style="width:${Math.round(i.progress * 100)}%"></div></div>` : ''}
+        </div>
+        <div class="q-actions">
+          ${i.status === 'done' ? `<button class="btn small-btn primary" data-open="${i.id}">Ouvrir</button>` : ''}
+          ${i.status === 'error' ? `<button class="btn small-btn" data-retry="${i.id}">Réessayer</button>` : ''}
+          <button class="btn small-btn ghost" data-remove="${i.id}" title="Retirer de la file">✕</button>
+        </div>
+      </li>`,
+    )
+    .join('');
+  $('queue-list').querySelectorAll<HTMLButtonElement>('[data-open]').forEach((b) => {
+    b.onclick = () => {
+      $('queue-panel').hidden = true;
+      void loadYouTube(b.dataset.open!);
+    };
+  });
+  $('queue-list').querySelectorAll<HTMLButtonElement>('[data-retry]').forEach((b) => (b.onclick = () => queue.retry(b.dataset.retry!)));
+  $('queue-list').querySelectorAll<HTMLButtonElement>('[data-remove]').forEach((b) => (b.onclick = () => queue.remove(b.dataset.remove!)));
+}
+let lastReady = queue.ready;
+queue.onChange(() => {
+  renderQueue();
+  // une chanson vient d'être prête : on prévient et on rafraîchit le catalogue
+  if (queue.ready > lastReady) {
+    const done = [...queue.items].reverse().find((i) => i.status === 'done');
+    if (done) toast(`✅ « ${escapeHtml(done.title)} » est prête.`, { label: 'Ouvrir', run: () => void loadYouTube(done.id) });
+    refreshCatalogue();
+  }
+  lastReady = queue.ready;
+});
+$('open-queue').onclick = (e) => {
+  e.stopPropagation();
+  $('queue-panel').hidden = !$('queue-panel').hidden;
+};
+$('queue-clear').onclick = () => queue.clearDone();
+document.addEventListener('click', (e) => {
+  if (!$('queue-panel').hidden && !(e.target as HTMLElement).closest('.queue-anchor')) $('queue-panel').hidden = true;
+});
+renderQueue();
 
 function ytError(msg: string) {
   $('yt-error').textContent = msg;

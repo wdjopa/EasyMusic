@@ -397,3 +397,33 @@ body.has-mini footer { padding-bottom: 96px; }
   .big-chord { font-size: 2.6rem; }
   .song-head .song-meta { font-size: 0.85rem; }
 }
+
+/* file d'attente */
+.queue-anchor { position: relative; }
+#open-queue { white-space: nowrap; }
+#open-queue.has-ready { color: var(--voice); font-weight: 600; }
+.spinner.dark { display: inline-block; border-color: var(--line); border-top-color: var(--accent); vertical-align: -2px; }
+.queue-panel {
+  position: absolute; right: 0; top: calc(100% + 8px); width: min(420px, calc(100vw - 24px)); z-index: 40;
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
+}
+.queue-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.queue-head .small-btn { margin: 0; }
+.queue-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 50vh; overflow-y: auto; }
+.q-item { display: grid; grid-template-columns: 64px 1fr auto; gap: 10px; align-items: center; }
+.q-item img { width: 64px; height: 48px; object-fit: cover; border-radius: 6px; background: var(--line); }
+.q-title { font-weight: 600; font-size: 0.9rem; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.q-state { font-size: 0.8rem; color: var(--muted); }
+.q-item.done .q-state { color: var(--voice); }
+.q-item.error .q-state { color: #c0392b; }
+.q-bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 4px; }
+.q-bar div { height: 100%; background: var(--accent); transition: width 0.3s; }
+.q-actions { display: flex; gap: 4px; }
+.q-actions .small-btn { margin: 0; padding: 4px 8px; }
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 50;
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 12px; max-width: calc(100vw - 24px);
+  background: var(--text); color: var(--bg); box-shadow: 0 8px 24px rgb(0 0 0 / 0.25); font-size: 0.95rem;
+}
+.toast .small-btn { margin: 0; background: var(--bg); color: var(--text); }
+body.has-mini .toast { bottom: calc(84px + env(safe-area-inset-bottom)); }

@@ -28,7 +28,7 @@ import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/ca
 import { startMic, type MicSession } from './ui/mic';
 import { Queue } from './ui/queue';
 import { startPractice, type PracticeSession } from './ui/practice';
-import { judgeChord, judgeVoice, type LiveFrame, type PracticeMode } from './dsp/live';
+import { judgeChord, judgeVoice, SILENCE_RMS, type LiveFrame, type PracticeMode } from './dsp/live';
 import { createPlayer, parseYouTubeId, YT_STATE, type YTPlayer } from './ui/youtube';
 import { encodeWav } from './ui/wav';
 
@@ -1492,6 +1492,7 @@ let tallies = new Map<number, { ok: number; total: number }>();
 let voiceScore = { ok: 0, total: 0 };
 const recentChords: (Chord | null)[] = [];
 const MIC_LATENCY = 0.15; // le son arrive au micro un peu après la musique
+let lastVoiceClass = '';
 
 document.querySelectorAll<HTMLButtonElement>('.pmode').forEach((b) => {
   b.onclick = () => {
@@ -1519,6 +1520,7 @@ $('practice-btn').addEventListener('click', async () => {
     practice = null;
     btn.textContent = '▶ Démarrer';
     btn.classList.remove('recording');
+    $('mic-level-row').hidden = true;
     return;
   }
   try {
@@ -1533,6 +1535,9 @@ $('practice-btn').addEventListener('click', async () => {
     btn.textContent = '⏹ Arrêter';
     btn.classList.add('recording');
     $('practice-live').hidden = false;
+    $('mic-level-row').hidden = false;
+    micSilentSince = performance.now();
+    lastPitchAt = 0;
     $('pl-score').textContent = 'Jouez en même temps que la musique…';
   } catch (err) {
     $('pl-score').textContent = `Micro indisponible : ${(err as Error).message}`;
@@ -1553,7 +1558,22 @@ function expectedMelody(t: number): number | null {
   return null;
 }
 
+let micSilentSince = 0;
+let lastPitchAt = 0;
+/** Garde la dernière note affichée un court instant (respirations, consonnes) au lieu de clignoter. */
+const HOLD_MS = 700;
+
 function onPracticeFrame(f: LiveFrame) {
+  // niveau du micro : pour vérifier qu'il capte bien
+  const now = performance.now();
+  $('mic-level').style.width = `${Math.min(100, Math.sqrt(f.level / 0.1) * 100)}%`;
+  if (f.level >= SILENCE_RMS) micSilentSince = now;
+  $('mic-level-hint').textContent =
+    now - micSilentSince > 3000
+      ? 'Aucun son : vérifiez le micro choisi par le navigateur et son autorisation.'
+      : f.level < SILENCE_RMS
+        ? 'silence'
+        : '';
   if (!state.analysis) return;
   const t = mediaTime() - MIC_LATENCY;
   const idx = segmentAt(t, segs);
@@ -1580,8 +1600,8 @@ function onPracticeFrame(f: LiveFrame) {
     if (v !== 'silent') box.classList.add(v);
     $('pl-chord-verdict').textContent =
       v === 'silent'
-        ? f.level < 0.008
-          ? 'Je n’entends rien…'
+        ? f.level < SILENCE_RMS
+          ? 'Jouez…'
           : 'Accord pas assez net'
         : v === 'ok'
           ? '✓ Juste'
@@ -1603,10 +1623,14 @@ function onPracticeFrame(f: LiveFrame) {
     const box = $('pl-voice-box');
     box.classList.remove('ok', 'close', 'wrong');
     if (!f.pitch) {
-      $('pl-note').textContent = '—';
-      $('pl-voice-verdict').textContent = f.level < 0.008 ? 'Je n’entends rien…' : '';
-      $('tuner-needle').style.left = '50%';
+      // pas de note sur ce bloc : on garde l'affichage précédent un instant
+      if (now - lastPitchAt > HOLD_MS) {
+        $('pl-note').textContent = '—';
+        $('pl-voice-verdict').textContent = f.level < SILENCE_RMS ? 'Chantez…' : 'Note pas assez nette';
+        $('tuner-needle').style.left = '50%';
+      } else box.classList.add(lastVoiceClass);
     } else {
+      lastPitchAt = now;
       const p = f.pitch;
       $('pl-note').textContent = `${midiName(p.midi).split(' ')[0]}`;
       $('tuner-needle').style.left = `${50 + p.cents}%`;
@@ -1621,7 +1645,8 @@ function onPracticeFrame(f: LiveFrame) {
       $('pl-voice-verdict').textContent = `${fits} · ${tune}`;
       const good = v.inTune && (v.fit === 'melody' || v.fit === 'chord');
       const mid = v.fit !== 'outside';
-      box.classList.add(good ? 'ok' : mid ? 'close' : 'wrong');
+      lastVoiceClass = good ? 'ok' : mid ? 'close' : 'wrong';
+      box.classList.add(lastVoiceClass);
       voiceScore.total++;
       voiceScore.ok += good ? 1 : mid ? 0.5 : 0;
     }

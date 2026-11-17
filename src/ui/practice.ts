@@ -18,6 +18,8 @@ export async function startPractice(
     audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
   });
   const ctx = new AudioContext();
+  // certains navigateurs (Safari) démarrent le contexte audio « suspendu » : le micro ne renverrait que du silence
+  if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
   const src = ctx.createMediaStreamSource(stream);
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 8192;

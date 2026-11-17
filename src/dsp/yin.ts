@@ -8,6 +8,8 @@ export function yin(
   fMin = 60,
   fMax = 1200,
   threshold = 0.12,
+  /** Niveau minimal (RMS) : bas, car un micro lu sans gain automatique est souvent faible. */
+  minRms = 0.002,
 ): { freq: number; probability: number } | null {
   const tauMax = Math.min(Math.floor(sampleRate / fMin), Math.floor(buf.length / 2));
   const tauMin = Math.max(2, Math.floor(sampleRate / fMax));
@@ -17,7 +19,7 @@ export function yin(
   let rms = 0;
   for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
   rms = Math.sqrt(rms / buf.length);
-  if (rms < 0.01) return null;
+  if (rms < minRms) return null;
 
   const d = new Float32Array(tauMax + 1);
   for (let tau = 1; tau <= tauMax; tau++) {

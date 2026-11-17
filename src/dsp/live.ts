@@ -7,6 +7,9 @@ import { yin } from './yin';
 
 export type PracticeMode = 'instrument' | 'voice' | 'both';
 
+/** En dessous de ce niveau (RMS), on considère qu'il n'y a pas de son. */
+export const SILENCE_RMS = 0.0025;
+
 export interface LiveFrame {
   level: number; // niveau sonore (RMS)
   chord: Chord | null; // accord reconnu (null : silence ou trop flou)
@@ -22,7 +25,8 @@ export function analyzeLiveFrame(buf: Float32Array, sr: number, mode: PracticeMo
   for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
   rms = Math.sqrt(rms / buf.length);
   const out: LiveFrame = { level: rms, chord: null, notes: [], pitch: null };
-  if (rms < 0.008) return out;
+  // seuil bas : le micro est lu sans contrôle automatique du gain, son niveau brut est souvent faible
+  if (rms < SILENCE_RMS) return out;
 
   // spectre du bloc
   const n = 1 << Math.floor(Math.log2(buf.length));
@@ -49,8 +53,8 @@ export function analyzeLiveFrame(buf: Float32Array, sr: number, mode: PracticeMo
   }
 
   if (mode === 'voice') {
-    const r = yin(buf, sr, 70, 1100, 0.15);
-    if (r && r.probability > 0.8) out.pitch = toPitch(r.freq);
+    const r = yin(buf, sr, 70, 1100, 0.2);
+    if (r && r.probability > 0.7) out.pitch = toPitch(r.freq);
   } else if (mode === 'both') {
     const f = predominantPitch(mag, sr, n);
     if (f) out.pitch = toPitch(f);

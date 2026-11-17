@@ -66,6 +66,13 @@ export class AudioCache {
     if (!this.entries.has(id)) throw new Error('Audio indisponible.');
   }
 
+  /** Fichier audio original (pour la transcription des paroles), s'il est en cache. */
+  original(id: string): string | undefined {
+    const e = this.entries.get(id);
+    if (e) e.lastUsed = Date.now();
+    return e?.file;
+  }
+
   /** Fichier transposé de `semitones` demi-tons (créé à la demande, puis réutilisé). */
   shifted(id: string, semitones: number): Promise<string> {
     const e = this.entries.get(id);

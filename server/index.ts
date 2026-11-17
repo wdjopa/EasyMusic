@@ -5,6 +5,7 @@ import { config } from './config';
 import { analyzeOffThread } from './analyzer';
 import { AudioCache } from './audioCache';
 import { JobQueue } from './jobs';
+import { transcribe, whisperAvailable } from './whisper';
 import { downloadAudio, fetchInfo } from './youtube';
 
 const audioCache = new AudioCache();
@@ -13,6 +14,7 @@ const queue = new JobQueue({ fetchInfo, downloadAudio, analyze: analyzeOffThread
 );
 const handler = createApp({
   queue,
+  whisper: { available: whisperAvailable, transcribe },
   audio: {
     cache: audioCache,
     // téléchargement pour la lecture seule (chanson ouverte depuis le catalogue)

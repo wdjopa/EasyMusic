@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { stat } from 'node:fs/promises';
@@ -7,7 +8,7 @@ import { parseYouTubeId } from '../src/shared/youtubeId';
 import type { AudioCache } from './audioCache';
 import type { Job, JobQueue } from './jobs';
 import { findLyrics } from './lyrics';
-import type { Lyrics } from '../src/shared/lyrics';
+import { cleanTitle, type LyricLine, type Lyrics } from '../src/shared/lyrics';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -79,12 +80,54 @@ export function createApp(opts: {
   rateLimitPerHour: number;
   /** Recherche de paroles (remplaçable dans les tests). */
   findLyrics?: typeof findLyrics;
+  /** Transcription des paroles par IA (Whisper), si installée. */
+  whisper?: { available: () => boolean; transcribe: (file: string, onProgress: (f: number) => void) => Promise<LyricLine[]> };
   /** Lecture transposée des vidéos (facultatif). */
   audio?: { cache: AudioCache; download: (id: string) => Promise<void> };
 }) {
   const { queue, staticDir, audio } = opts;
   const limiter = new RateLimiter(opts.rateLimitPerHour);
   const lyricsCache = new Map<string, Lyrics | null>();
+
+  // transcriptions par IA : une à la fois (c'est lourd), résultats gardés 1 h en mémoire
+  interface TJob { id: string; videoId: string; status: 'queued' | 'running' | 'done' | 'error'; progress: number; label: string; lyrics?: Lyrics; error?: string; at: number }
+  const tjobs = new Map<string, TJob>();
+  const tByVideo = new Map<string, TJob>();
+  let tChain: Promise<void> = Promise.resolve();
+  const startTranscription = (videoId: string, meta: { title?: string; author?: string }): TJob => {
+    const existing = tByVideo.get(videoId);
+    if (existing && existing.status !== 'error' && Date.now() - existing.at < 3600_000) return existing;
+    const job: TJob = { id: crypto.randomUUID(), videoId, status: 'queued', progress: 0, label: 'En attente…', at: Date.now() };
+    tjobs.set(job.id, job);
+    tByVideo.set(videoId, job);
+    tChain = tChain.then(async () => {
+      try {
+        job.status = 'running';
+        job.label = 'Récupération de l’audio…';
+        await audio!.cache.ensure(videoId, () => audio!.download(videoId));
+        const file = audio!.cache.original(videoId);
+        if (!file) throw new Error('Audio indisponible.');
+        job.label = 'Transcription par IA…';
+        const lines = await opts.whisper!.transcribe(file, (f) => {
+          job.progress = f;
+          job.label = `Transcription par IA… ${Math.round(f * 100)} %`;
+        });
+        // quelques mots isolés = sans doute une hallucination sur un morceau instrumental
+        const words = lines.reduce((n, l) => n + l.text.split(/\s+/).filter(Boolean).length, 0);
+        if (words < 6) throw new Error('Aucune parole détectée (morceau instrumental ?).');
+        const names = cleanTitle(meta.title ?? '', meta.author ?? '');
+        job.lyrics = { synced: lines, plain: null, track: names.track, artist: names.artist, source: 'Whisper (IA)' };
+        job.status = 'done';
+        job.progress = 1;
+        job.label = 'Terminé';
+      } catch (e) {
+        job.status = 'error';
+        job.error = (e as Error).message;
+      }
+      job.at = Date.now();
+    });
+    return job;
+  };
 
   async function serveStatic(req: IncomingMessage, res: ServerResponse, path: string) {
     if (!staticDir) return json(res, 404, { error: 'Introuvable' });
@@ -159,6 +202,33 @@ export function createApp(opts: {
         const file = await audio.cache.ready(a[1], Number(a[2]));
         if (!file) return json(res, 404, { error: 'Audio expiré : relancez la lecture.' });
         return await serveFile(req, res, file, audio.cache.format.mime);
+      }
+
+      if (path === '/api/features' && req.method === 'GET') {
+        return json(res, 200, { whisper: !!(opts.whisper?.available() && audio), transposedAudio: !!audio });
+      }
+
+      if (path === '/api/lyrics/transcribe' && req.method === 'POST') {
+        if (!opts.whisper?.available() || !audio) return json(res, 501, { error: 'La transcription par IA n’est pas installée sur ce serveur.' });
+        const body = (await readBody(req)) as { videoId?: unknown; title?: unknown; author?: unknown };
+        const id = typeof body.videoId === 'string' ? parseYouTubeId(body.videoId) : null;
+        if (!id) return json(res, 400, { error: 'Vidéo invalide.' });
+        if (!audio.cache.has(id) && !tByVideo.has(id)) {
+          const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+          if (!limiter.allow(ip)) return json(res, 429, { error: 'Trop de demandes : réessayez dans une heure.' });
+        }
+        const job = startTranscription(id, {
+          title: typeof body.title === 'string' ? body.title.slice(0, 300) : undefined,
+          author: typeof body.author === 'string' ? body.author.slice(0, 200) : undefined,
+        });
+        return json(res, 202, { job: { ...job, lyrics: undefined } });
+      }
+
+      const tj = path.match(/^\/api\/transcribe\/([\w-]+)$/);
+      if (tj && req.method === 'GET') {
+        const job = tjobs.get(tj[1]);
+        if (!job) return json(res, 404, { error: 'Transcription inconnue ou expirée.' });
+        return json(res, 200, { job: { ...job, lyrics: undefined }, lyrics: job.lyrics });
       }
 
       if (path === '/api/lyrics' && req.method === 'GET') {

@@ -61,6 +61,16 @@ beforeAll(async () => {
   const handler = createApp({
     queue,
     rateLimitPerHour: 8,
+    whisper: {
+      available: () => true,
+      transcribe: async (_file, onProgress) => {
+        onProgress(0.5);
+        return [
+          { time: 4.5, text: 'And so my fellow Americans' },
+          { time: 8.1, text: 'ask not what your country can do for you' },
+        ];
+      },
+    },
     audio: { cache, download: (id) => downloadAudio(id, () => {}, (d, f) => cache.keep(id, d, f)).then(() => undefined) },
   });
   server = createServer((q, r) => void handler(q, r));
@@ -144,6 +154,23 @@ describe('serveur', () => {
     expect((await fetch(`${base}/api/audio/sinus440abc/prepare`, { method: 'POST', body: '{"semitones":0}' })).status).toBe(200);
     expect((await fetch(`${base}/api/audio/sinus440abc/prepare`, { method: 'POST', body: '{"semitones":40}' })).status).toBe(400);
     expect((await fetch(`${base}/api/audio/zzzzzzzzzzz/7.mp3`)).status).toBe(404);
+  });
+
+  it('transcrit les paroles par IA quand on le demande', async () => {
+    expect(await (await fetch(`${base}/api/features`)).json()).toEqual({ whisper: true, transposedAudio: true });
+    const r = await fetch(`${base}/api/lyrics/transcribe`, { method: 'POST', body: JSON.stringify({ videoId: 'sinus440abc', title: 'Artiste - Titre (Official Video)', author: 'Artiste' }) });
+    expect(r.status).toBe(202);
+    const { job } = await r.json();
+    let res: { job: { status: string }; lyrics?: { synced: { time: number }[]; source: string; track: string } } | null = null;
+    for (let i = 0; i < 50; i++) {
+      res = await (await fetch(`${base}/api/transcribe/${job.id}`)).json();
+      if (res!.job.status === 'done' || res!.job.status === 'error') break;
+      await new Promise((ok) => setTimeout(ok, 100));
+    }
+    expect(res!.job.status).toBe('done');
+    expect(res!.lyrics!.synced[0].time).toBe(4.5);
+    expect(res!.lyrics!.source).toBe('Whisper (IA)');
+    expect(res!.lyrics!.track).toBe('Titre');
   });
 
   it('rejette les liens invalides', async () => {

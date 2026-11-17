@@ -78,3 +78,33 @@ export async function fetchLyrics(title: string, author: string, duration?: numb
   if (!r.ok) throw new Error(body.error ?? `Erreur du serveur (${r.status})`);
   return body.lyrics as Lyrics;
 }
+
+let featuresCache: Promise<{ whisper: boolean; transposedAudio: boolean }> | null = null;
+/** Fonctions disponibles sur le serveur (transcription IA…). */
+export function fetchFeatures(): Promise<{ whisper: boolean; transposedAudio: boolean }> {
+  featuresCache ??= req<{ whisper: boolean; transposedAudio: boolean }>('/api/features').catch(() => ({ whisper: false, transposedAudio: false }));
+  return featuresCache;
+}
+
+/** Fait transcrire les paroles par IA (Whisper, sur le serveur) et attend le résultat. */
+export async function transcribeLyrics(
+  videoId: string,
+  meta: { title?: string; author?: string },
+  onProgress: (fraction: number, label: string) => void,
+  signal?: { cancelled: boolean },
+): Promise<Lyrics> {
+  let { job } = await req<{ job: { id: string; status: string; progress: number; label: string; error?: string } }>('/api/lyrics/transcribe', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ videoId, ...meta }),
+  });
+  for (;;) {
+    if (signal?.cancelled) throw new Error('annulé');
+    onProgress(job.progress, job.label);
+    if (job.status === 'error') throw new Error(job.error ?? 'Transcription impossible');
+    await new Promise((r) => setTimeout(r, 1000));
+    const r = await req<{ job: typeof job; lyrics?: Lyrics }>(`/api/transcribe/${job.id}`);
+    if (r.lyrics) return r.lyrics;
+    job = r.job;
+  }
+}

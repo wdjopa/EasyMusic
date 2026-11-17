@@ -21,7 +21,7 @@ import {
   transposeKey,
   VOICE_TYPES,
 } from './music/theory';
-import { analyzeVideo, fetchLyrics, prepareTransposedAudio } from './ui/api';
+import { analyzeVideo, fetchFeatures, fetchLyrics, prepareTransposedAudio, transcribeLyrics } from './ui/api';
 import type { Lyrics } from './shared/lyrics';
 import { getSong, listSongs, removeSong, saveLyrics, savePrefs, saveSong, type LibrarySong } from './ui/library';
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
@@ -1249,10 +1249,58 @@ function updateNow() {
 
 // ---------------------------------------------------------------- paroles
 let lyricsToken = 0;
-let lyricsStatus: 'idle' | 'loading' | 'none' | 'error' = 'idle';
+let lyricsStatus: 'idle' | 'loading' | 'transcribing' | 'none' | 'error' = 'idle';
+let transcribeLabel = '';
+let transcribeProgress = 0;
+let transcribeError = '';
+let whisperOn = false;
+void fetchFeatures().then((f) => {
+  whisperOn = f.whisper;
+  render();
+});
+/** Infos de la chanson ouverte, pour la transcription. */
+let lyricsMeta: { title: string; author: string; songId: string | null } = { title: '', author: '', songId: null };
+
+/** Transcrit les paroles par IA (Whisper) : pour les chansons YouTube absentes de la base de paroles. */
+async function transcribeCurrent() {
+  const { songId, title, author } = lyricsMeta;
+  if (!songId || !whisperOn) return;
+  const token = ++lyricsToken;
+  lyricsStatus = 'transcribing';
+  transcribeError = '';
+  transcribeLabel = 'Préparation…';
+  transcribeProgress = 0;
+  setStep('lyrics', 'active', 'transcription par IA…');
+  render();
+  try {
+    const l = await transcribeLyrics(songId, { title, author }, (f, label) => {
+      if (token !== lyricsToken) return;
+      transcribeProgress = f;
+      transcribeLabel = label;
+      const bar = document.querySelector<HTMLElement>('#transcribe-bar');
+      if (bar) {
+        bar.style.width = `${Math.round(f * 100)}%`;
+        $('transcribe-label').textContent = label;
+      }
+    });
+    if (token !== lyricsToken) return;
+    state.lyrics = l;
+    lyricsStatus = 'idle';
+    saveLyrics(songId, l);
+    setStep('lyrics', 'done', 'transcrites par IA');
+  } catch (e) {
+    if (token !== lyricsToken) return;
+    lyricsStatus = state.lyrics ? 'idle' : 'none';
+    transcribeError = (e as Error).message;
+    setStep('lyrics', 'done', 'transcription impossible');
+  }
+  render();
+}
 
 /** Charge les paroles (depuis le catalogue si déjà connues, sinon via le serveur). */
 async function loadLyrics(title: string, author: string, duration: number, songId: string | null, known?: Lyrics | null) {
+  lyricsMeta = { title, author, songId: state.source === 'youtube' ? songId : null };
+  transcribeError = '';
   const token = ++lyricsToken;
   if (known !== undefined) {
     state.lyrics = known;
@@ -1270,6 +1318,8 @@ async function loadLyrics(title: string, author: string, duration: number, songI
     state.lyrics = l;
     lyricsStatus = l ? 'idle' : 'none';
     if (songId) saveLyrics(songId, l);
+    // paroles absentes de la base : l'IA prend le relais
+    if (!l?.synced && songId && state.source === 'youtube' && (await fetchFeatures()).whisper) return void transcribeCurrent();
     setStep('lyrics', 'done', l ? (l.synced ? '' : 'non synchronisées') : 'introuvables');
   } catch {
     if (token !== lyricsToken) return;
@@ -1359,20 +1409,45 @@ function renderLyrics() {
   const offBox = $('lyrics-offset-box');
   $('lyr-offset').textContent = `${state.lyricsOffset > 0 ? '+' : ''}${String(state.lyricsOffset).replace('.', ',')} s`;
   const l = state.lyrics;
-  $('lyrics-source').textContent = l ? `${l.artist} — ${l.track} · source : ${l.source}` : '';
+  $('lyrics-source').textContent = l ? `${[l.artist, l.track].filter(Boolean).join(' — ')} · source : ${l.source}` : '';
   offBox.hidden = !l?.synced;
   sheet = [];
   lyricLine = -1;
   if (!state.analysis) return;
+  const canAI = whisperOn && state.source === 'youtube' && !!lyricsMeta.songId;
+  const aiButton = (text: string) => (canAI ? `<button class="btn small-btn" id="ai-lyrics">🤖 ${text}</button>` : '');
+  const aiError = transcribeError ? `<p class="hint ai-error">⚠️ Transcription par IA : ${escapeHtml(transcribeError)}</p>` : '';
   if (lyricsStatus === 'loading') return void (box.innerHTML = `<p class="hint">Recherche des paroles…</p><div class="skel-lines">${skeleton(8)}</div>`);
-  if (lyricsStatus === 'error') return void (box.innerHTML = '<p class="hint">Paroles indisponibles pour le moment.</p>');
-  if (!l) return void (box.innerHTML = '<p class="hint">Paroles introuvables pour ce morceau.</p>');
-  if (!l.synced) {
-    box.innerHTML = `<p class="hint">Paroles non synchronisées : les accords ne peuvent pas être placés au-dessus.</p><pre class="plain">${escapeHtml(l.plain ?? '')}</pre>`;
+  if (lyricsStatus === 'transcribing') {
+    box.innerHTML = `<div class="transcribing">
+        <p><strong>🤖 L’IA écoute la chanson pour écrire les paroles…</strong></p>
+        <div class="q-bar"><div id="transcribe-bar" style="width:${Math.round(transcribeProgress * 100)}%"></div></div>
+        <p class="small" id="transcribe-label">${escapeHtml(transcribeLabel)}</p>
+        <p class="small hint">Les paroles ne sont pas dans la base : elles sont transcrites sur le serveur (Whisper). Comptez 20 s à 1 min.</p>
+      </div><div class="skel-lines">${skeleton(6)}</div>`;
     return;
   }
+  const wire = () => document.querySelector<HTMLButtonElement>('#ai-lyrics')?.addEventListener('click', () => void transcribeCurrent());
+  if (lyricsStatus === 'error') {
+    box.innerHTML = `<p class="hint">Paroles indisponibles pour le moment.</p>${aiButton('Transcrire par IA')}${aiError}`;
+    return wire();
+  }
+  if (!l) {
+    box.innerHTML = `<p class="hint">Paroles introuvables pour ce morceau${canAI ? '' : '.'}</p>${aiButton('Transcrire les paroles par IA')}${aiError}`;
+    return wire();
+  }
+  if (!l.synced) {
+    box.innerHTML = `<p class="hint">Paroles non synchronisées : les accords ne peuvent pas être placés au-dessus.</p>${aiButton('Les transcrire par IA (synchronisées)')}${aiError}<pre class="plain">${escapeHtml(l.plain ?? '')}</pre>`;
+    return wire();
+  }
   sheet = buildSheet();
-  box.innerHTML = sheet
+  const isAI = l.source.startsWith('Whisper');
+  const notice = isAI
+    ? `<p class="ai-notice">🤖 Paroles transcrites automatiquement par IA : elles peuvent contenir des erreurs.</p>`
+    : canAI
+      ? `<p class="ai-notice subtle">Paroles incorrectes ? ${aiButton('Transcrire par IA')}</p>`
+      : '';
+  box.innerHTML = notice + aiError + sheet
     .map(
       (r, i) =>
         `<div class="lyric${r.instru ? ' instru' : ''}" data-i="${i}"><div class="chords">${r.chords
@@ -1381,6 +1456,7 @@ function renderLyrics() {
     )
     .join('');
   box.querySelectorAll<HTMLElement>('.lyric').forEach((el) => (el.onclick = () => mediaSeek(Math.max(0, sheet[+el.dataset.i!].start) + 0.01)));
+  wire();
 }
 
 let lyricLine = -1;

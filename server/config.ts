@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const env = process.env;
@@ -18,6 +19,21 @@ export const config = {
   concurrency: Number(env.CONCURRENCY ?? 2),
   /** Nouvelles analyses autorisées par adresse IP et par heure. */
   rateLimitPerHour: Number(env.RATE_LIMIT_PER_HOUR ?? 20),
+  /** Whisper (whisper.cpp) pour transcrire les paroles introuvables. */
+  whisperCli: env.WHISPER_CLI ?? 'whisper-cli',
+  /** Modèle Whisper : celui indiqué, sinon le meilleur trouvé dans models/ (voir npm run whisper:setup). */
+  whisperModel: resolve(
+    env.WHISPER_MODEL ??
+      ['ggml-large-v3-turbo-q5_0.bin', 'ggml-large-v3-turbo.bin', 'ggml-small.bin', 'ggml-base.bin']
+        .map((m) => `models/${m}`)
+        .find((m) => existsSync(m)) ??
+      'models/ggml-large-v3-turbo-q5_0.bin',
+  ),
+  /** Langue des paroles (« auto » : détection automatique). */
+  whisperLanguage: env.WHISPER_LANGUAGE ?? 'auto',
+  whisperThreads: Number(env.WHISPER_THREADS ?? 4),
+  /** Réglage DTW (déduit du nom du modèle si absent). */
+  whisperDtw: env.WHISPER_DTW || undefined,
   /** Fréquence d'échantillonnage utilisée pour l'analyse. */
   sampleRate: 22050,
 };

@@ -9,7 +9,8 @@
     "start": "tsx server/index.ts",
     "build": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "whisper:setup": "bash scripts/whisper-setup.sh"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

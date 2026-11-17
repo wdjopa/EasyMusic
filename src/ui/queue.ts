@@ -1,7 +1,7 @@
 // File d'attente : des chansons analysées en arrière-plan, sans toucher à celle qui joue.
 import { ANALYSIS_VERSION } from '../dsp/analyze';
 import { parseYouTubeId } from '../shared/youtubeId';
-import { analyzeVideo, fetchLyrics } from './api';
+import { analyzeVideo, fetchFeatures, fetchLyrics, transcribeLyrics } from './api';
 import { getSong, saveLyrics, saveSong } from './library';
 
 export interface QueueItem {
@@ -138,7 +138,20 @@ export class Queue {
       item.label = 'Recherche des paroles…';
       this.emit();
       try {
-        saveLyrics(item.id, await fetchLyrics(song.title, song.author, song.analysis.duration));
+        let lyrics = await fetchLyrics(song.title, song.author, song.analysis.duration);
+        // paroles absentes de la base : transcription par IA, en arrière-plan aussi
+        if (!lyrics?.synced && (await fetchFeatures()).whisper) {
+          try {
+            lyrics = await transcribeLyrics(item.id, { title: song.title, author: song.author }, (f, label) => {
+              item.progress = f;
+              item.label = label;
+              this.emit();
+            });
+          } catch {
+            /* on garde ce qu'on a */
+          }
+        }
+        saveLyrics(item.id, lyrics);
       } catch {
         /* les paroles seront recherchées à l'ouverture */
       }

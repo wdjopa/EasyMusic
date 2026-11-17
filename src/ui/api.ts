@@ -57,3 +57,13 @@ export async function analyzeVideo(
     job = r.job;
   }
 }
+
+/** Demande au serveur une version transposée de l'audio ; renvoie l'adresse du fichier à lire. */
+export async function prepareTransposedAudio(videoId: string, semitones: number): Promise<string> {
+  const r = await req<{ url: string }>(`/api/audio/${videoId}/prepare`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ semitones }),
+  });
+  return r.url;
+}

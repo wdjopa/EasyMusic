@@ -1,8 +1,10 @@
 import { createReadStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import { parseYouTubeId } from '../src/shared/youtubeId';
+import type { AudioCache } from './audioCache';
 import type { Job, JobQueue } from './jobs';
 
 const MIME: Record<string, string> = {
@@ -32,6 +34,29 @@ async function readBody(req: IncomingMessage, limit = 10_000): Promise<unknown> 
   return data ? JSON.parse(data) : {};
 }
 
+/** Sert un fichier en gérant les requêtes partielles (nécessaires pour avancer dans un morceau). */
+async function serveFile(req: IncomingMessage, res: ServerResponse, file: string, mime: string) {
+  const { size } = await stat(file);
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+  const headers = { 'content-type': mime, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=1800' };
+  if (range && (range[1] || range[2])) {
+    let start = range[1] ? Number(range[1]) : size - Number(range[2]);
+    let end = range[1] && range[2] ? Number(range[2]) : size - 1;
+    start = Math.max(0, start);
+    end = Math.min(size - 1, end);
+    if (start > end) {
+      res.writeHead(416, { 'content-range': `bytes */${size}` });
+      return res.end();
+    }
+    res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 });
+    if (req.method === 'HEAD') return res.end();
+    return pipeline(createReadStream(file, { start, end }), res).catch(() => {});
+  }
+  res.writeHead(200, { ...headers, 'content-length': size });
+  if (req.method === 'HEAD') return res.end();
+  return pipeline(createReadStream(file), res).catch(() => {});
+}
+
 /** Limite simple du nombre de nouvelles analyses par adresse IP. */
 class RateLimiter {
   private hits = new Map<string, number[]>();
@@ -46,8 +71,14 @@ class RateLimiter {
   }
 }
 
-export function createApp(opts: { queue: JobQueue; staticDir?: string; rateLimitPerHour: number }) {
-  const { queue, staticDir } = opts;
+export function createApp(opts: {
+  queue: JobQueue;
+  staticDir?: string;
+  rateLimitPerHour: number;
+  /** Lecture transposée des vidéos (facultatif). */
+  audio?: { cache: AudioCache; download: (id: string) => Promise<void> };
+}) {
+  const { queue, staticDir, audio } = opts;
   const limiter = new RateLimiter(opts.rateLimitPerHour);
 
   async function serveStatic(req: IncomingMessage, res: ServerResponse, path: string) {
@@ -96,6 +127,33 @@ export function createApp(opts: { queue: JobQueue; staticDir?: string; rateLimit
         const job = queue.get(m[1]);
         if (!job) return json(res, 404, { error: 'Analyse inconnue ou expirée.' });
         return json(res, 200, { job: publicJob(job), song: job.song });
+      }
+
+      // lecture transposée : préparation (téléchargement si besoin + transposition)…
+      let a = path.match(/^\/api\/audio\/([\w-]{11})\/prepare$/);
+      if (a && req.method === 'POST' && audio) {
+        const body = (await readBody(req)) as { semitones?: unknown };
+        const semi = Number(body.semitones);
+        if (!Number.isInteger(semi) || Math.abs(semi) > 12) return json(res, 400, { error: 'Transposition invalide.' });
+        const id = a[1];
+        if (!audio.cache.has(id)) {
+          const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+          if (!limiter.allow(ip)) return json(res, 429, { error: 'Trop de téléchargements demandés : réessayez dans une heure.' });
+        }
+        try {
+          await audio.cache.ensure(id, () => audio.download(id));
+          await audio.cache.shifted(id, semi);
+        } catch (e) {
+          return json(res, 502, { error: (e as Error).message });
+        }
+        return json(res, 200, { url: `/api/audio/${id}/${semi}.${audio.cache.format.ext}` });
+      }
+      // …puis lecture du fichier préparé
+      a = path.match(/^\/api\/audio\/([\w-]{11})\/(-?\d{1,2})\.(mp3|m4a)$/);
+      if (a && (req.method === 'GET' || req.method === 'HEAD') && audio) {
+        const file = await audio.cache.ready(a[1], Number(a[2]));
+        if (!file) return json(res, 404, { error: 'Audio expiré : relancez la lecture.' });
+        return await serveFile(req, res, file, audio.cache.format.mime);
       }
 
       if (path.startsWith('/api/')) return json(res, 404, { error: 'Introuvable' });

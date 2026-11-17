@@ -42,7 +42,7 @@ function friendlyError(stderr: string): Error {
   return new Error(line ? line.replace(/^ERROR:\s*/, '') : 'Téléchargement impossible.');
 }
 
-function run(cmd: string, args: string[], onLine?: (line: string) => void): Promise<{ stdout: Buffer; stderr: string }> {
+export function run(cmd: string, args: string[], onLine?: (line: string) => void): Promise<{ stdout: Buffer; stderr: string }> {
   return new Promise((resolve, reject) => {
     // arguments passés en tableau : pas de shell, donc pas d'injection possible
     const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -97,8 +97,13 @@ const STRATEGIES: { label: string; args: string[] }[] = [
  * Télécharge l'audio dans un dossier temporaire, le décode en PCM mono,
  * puis supprime le fichier : seul le signal en mémoire est renvoyé.
  */
-export async function downloadAudio(id: string, onProgress: (fraction: number) => void): Promise<Float32Array> {
+export async function downloadAudio(
+  id: string,
+  onProgress: (fraction: number) => void,
+  keep?: (dir: string, file: string) => void,
+): Promise<Float32Array> {
   let lastError: Error | null = null;
+  let keepDir: string | null = null;
   for (const [i, strategy] of STRATEGIES.entries()) {
     const dir = await mkdtemp(join(tmpdir(), 'easymusic-'));
     try {
@@ -121,7 +126,12 @@ export async function downloadAudio(id: string, onProgress: (fraction: number) =
       const file = (await readdir(dir)).find((f) => f.startsWith('audio.') && !f.endsWith('.part'));
       if (!file) throw new Error('Fichier audio introuvable après le téléchargement.');
       if (i > 0) console.log(`[yt-dlp] ${id} : réussi avec la stratégie « ${strategy.label} »`);
-      return await decode(join(dir, file));
+      const audio = await decode(join(dir, file));
+      if (keep) {
+        keep(dir, join(dir, file)); // le cache temporaire se charge de supprimer le dossier
+        keepDir = dir;
+      }
+      return audio;
     } catch (e) {
       lastError = e as Error;
       const retryable = e instanceof DownloadRefused;
@@ -129,7 +139,7 @@ export async function downloadAudio(id: string, onProgress: (fraction: number) =
       if (e instanceof DownloadRefused) console.warn(e.details);
       if (!retryable) throw e;
     } finally {
-      await rm(dir, { recursive: true, force: true });
+      if (keepDir !== dir) await rm(dir, { recursive: true, force: true });
     }
   }
   throw lastError ?? new Error('Téléchargement impossible.');

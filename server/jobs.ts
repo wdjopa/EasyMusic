@@ -22,7 +22,7 @@ export interface Job {
 /** Ce dont la file a besoin pour récupérer une vidéo (remplaçable dans les tests). */
 export interface Source {
   fetchInfo(id: string): Promise<VideoInfo>;
-  downloadAudio(id: string, onProgress: (f: number) => void): Promise<Float32Array>;
+  downloadAudio(id: string, onProgress: (f: number) => void, keep?: (dir: string, file: string) => void): Promise<Float32Array>;
   /** Analyse (par défaut : dans le thread courant). */
   analyze?: (audio: Float32Array, sampleRate: number, onProgress: Progress) => Promise<AnalysisResult>;
 }
@@ -36,6 +36,8 @@ export class JobQueue {
   constructor(
     private source: Source,
     private concurrency = config.concurrency,
+    /** Si fourni, garde l'audio téléchargé un moment pour la lecture transposée. */
+    private keep?: (videoId: string, dir: string, file: string) => void,
   ) {}
 
   get(id: string): Job | undefined {
@@ -85,8 +87,10 @@ export class JobQueue {
       if (info.duration > config.maxDuration)
         throw new UserError(`Vidéo trop longue (${Math.round(info.duration / 60)} min, maximum ${Math.round(config.maxDuration / 60)} min).`);
       this.update(job, { label: 'Téléchargement de l’audio…', progress: 0.05 });
-      const audio = await this.source.downloadAudio(job.videoId, (f) =>
-        this.update(job, { progress: 0.05 + f * 0.6, label: `Téléchargement de l’audio… ${Math.round(f * 100)} %` }),
+      const audio = await this.source.downloadAudio(
+        job.videoId,
+        (f) => this.update(job, { progress: 0.05 + f * 0.6, label: `Téléchargement de l’audio… ${Math.round(f * 100)} %` }),
+        this.keep && ((dir, file) => this.keep!(job.videoId, dir, file)),
       );
       this.update(job, { status: 'analyzing', label: 'Analyse des accords…', progress: 0.7 });
       const onProgress: Progress = (f, label) => this.update(job, { progress: 0.7 + f * 0.28, label });

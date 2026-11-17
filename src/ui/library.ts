@@ -7,6 +7,7 @@ export interface SongPrefs {
   capo: number;
   simple: boolean;
   flats: boolean | null;
+  mode?: 'original' | 'voice';
 }
 
 export interface LibrarySong {

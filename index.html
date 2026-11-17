@@ -106,16 +106,25 @@
           <button class="btn" id="t-auto">✨ Adapter à ma voix</button>
         </div>
         <p class="recommend" id="recommend"></p>
+        <h3>Jouer et écouter dans…</h3>
+        <div class="mode-switch" role="group" aria-label="Tonalité jouée">
+          <button class="mode" data-mode="original"><span>🎵 Original</span><small class="mode-key-orig"></small></button>
+          <button class="mode" data-mode="voice"><span>🎤 Ma tonalité</span><small class="mode-key-voice"></small></button>
+        </div>
         <div class="apply-row">
-          <button class="btn primary" id="apply-audio" disabled>🔊 Transposer l'audio</button>
+          <span class="small audio-state"></span>
           <a class="btn" id="download" hidden>⬇️ Télécharger</a>
-          <span class="small" id="audio-state"></span>
         </div>
       </section>
 
       <!-- 4. Accords -->
       <section class="card" id="step-chords">
         <h2><span class="num">4</span> Les accords</h2>
+        <div class="mode-switch" role="group" aria-label="Tonalité jouée">
+          <button class="mode" data-mode="original"><span>🎵 Original</span><small class="mode-key-orig"></small></button>
+          <button class="mode" data-mode="voice"><span>🎤 Ma tonalité</span><small class="mode-key-voice"></small></button>
+        </div>
+        <p class="small audio-state"></p>
         <div class="chord-toolbar">
           <label>Capodastre <select id="capo"></select></label>
           <label title="Remplace 7, maj7, sus… par des accords majeurs/mineurs simples"><input type="checkbox" id="simple" checked /> Accords simplifiés</label>

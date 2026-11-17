@@ -20,7 +20,7 @@ import {
   transposeKey,
   VOICE_TYPES,
 } from './music/theory';
-import { analyzeVideo } from './ui/api';
+import { analyzeVideo, prepareTransposedAudio } from './ui/api';
 import { getSong, listSongs, removeSong, savePrefs, saveSong, type LibrarySong } from './ui/library';
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
 import { startMic, type MicSession } from './ui/mic';
@@ -40,6 +40,8 @@ const state = {
   songRangeEstimated: false,
   semitones: 0,
   octave: 0,
+  /** « original » : accords et son de la chanson ; « voice » : accords et son transposés pour la voix. */
+  mode: loadMode(),
   simple: true,
   appliedSemitones: 0,
   capo: 0,
@@ -49,6 +51,14 @@ const state = {
   shiftedUrl: null as string | null,
   originalUrl: null as string | null,
 };
+
+function loadMode(): 'original' | 'voice' {
+  try {
+    return localStorage.getItem('easymusic.mode') === 'voice' ? 'voice' : 'original';
+  } catch {
+    return 'original';
+  }
+}
 
 function loadVoice(): Range {
   try {
@@ -160,6 +170,7 @@ async function loadFile(file: File) {
     if (state.source !== 'file' || state.file !== file) return; // une autre source a été chargée entre-temps
     state.analysis = null;
     showAnalysis(analysis);
+    scheduleAudio(0);
   } catch (err) {
     console.error(err);
     setProgress(1, `Impossible de lire ce fichier : ${(err as Error).message}`);
@@ -250,6 +261,9 @@ async function loadYouTube(url: string) {
   const id = parseYouTubeId(url);
   if (!id) return ytError("Ce lien ne ressemble pas à une vidéo YouTube.");
   stopListening(false);
+  audioToken++;
+  audioStatus = '';
+  yt?.unMute();
   state.source = 'youtube';
   state.file = null;
   state.buffer = null;
@@ -326,9 +340,11 @@ function openSong(song: Pick<LibrarySong, 'title' | 'analysis' | 'prefs'>) {
     state.flats = p.flats;
     state.capo = p.capo;
     state.capoManual = true;
+    if (p.mode) state.mode = p.mode;
     setSemitones(p.semitones, p.octave);
   }
   restoringPrefs = false;
+  scheduleAudio(0);
 }
 let restoringPrefs = false;
 let prefsTimer = 0;
@@ -336,7 +352,14 @@ let prefsTimer = 0;
 function persistPrefs() {
   if (restoringPrefs || state.source !== 'youtube' || !currentSongId || !state.analysis) return;
   const id = currentSongId;
-  const prefs = { semitones: state.semitones, octave: state.octave, capo: state.capo, simple: state.simple, flats: state.flats };
+  const prefs = {
+    semitones: state.semitones,
+    octave: state.octave,
+    capo: state.capo,
+    simple: state.simple,
+    flats: state.flats,
+    mode: state.mode,
+  };
   clearTimeout(prefsTimer);
   prefsTimer = window.setTimeout(() => savePrefs(id, prefs), 300);
 }
@@ -345,9 +368,12 @@ function onYtState(s: number) {
   ytState = s;
   const title = yt?.getVideoData()?.title;
   if (title && state.source === 'youtube' && $('song-title').textContent === 'Vidéo YouTube') $('song-title').textContent = title;
-  if (s === YT_STATE.PLAYING && state.source === 'youtube' && state.appliedSemitones !== 0) {
-    // on ne joue pas deux sources à la fois
-    player.pause();
+  // en mode transposé, toucher la vidéo pilote le son transposé
+  if (followingAudio() && performance.now() - ytCommandAt > 800) {
+    if (s === YT_STATE.PLAYING && player.paused) {
+      yt!.mute();
+      void player.play();
+    } else if (s === YT_STATE.PAUSED && !player.paused) player.pause();
   }
   recorder?.setRecording(s === YT_STATE.PLAYING);
   if (s === YT_STATE.ENDED && recorder) void finishListening();
@@ -483,8 +509,22 @@ function mediaSeek(t: number) {
     if (player.paused) void player.play();
   }
 }
+// Son transposé d'une vidéo YouTube : la vidéo reste visible, muette, et suit le son.
+let ytCommandAt = 0;
+const followingAudio = () => state.source === 'youtube' && !!yt && state.appliedSemitones !== 0;
+function commandYt(fn: (p: YTPlayer) => void) {
+  if (!yt) return;
+  ytCommandAt = performance.now();
+  fn(yt);
+}
 player.addEventListener('play', () => {
-  if (state.source === 'youtube') yt?.pauseVideo();
+  if (followingAudio()) commandYt((p) => (p.mute(), p.seekTo(player.currentTime, true), p.playVideo()));
+});
+player.addEventListener('pause', () => {
+  if (followingAudio()) commandYt((p) => p.pauseVideo());
+});
+player.addEventListener('seeked', () => {
+  if (followingAudio()) commandYt((p) => p.seekTo(player.currentTime, true));
 });
 
 // ---------------------------------------------------------------- test de voix
@@ -558,7 +598,6 @@ flatsBox.onchange = () => {
   state.flats = flatsBox.checked;
   render();
 };
-$('apply-audio').onclick = () => void applyAudio();
 $('copy').onclick = () => {
   void navigator.clipboard.writeText(chordSheetText()).then(() => {
     $('copy').textContent = '✅ Copié';
@@ -572,8 +611,10 @@ function autoTranspose() {
 }
 
 function setSemitones(s: number, octave: number) {
+  const changed = s !== state.semitones;
   state.semitones = Math.max(-12, Math.min(12, s));
   state.octave = octave;
+  if (changed && state.mode === 'voice') scheduleAudio();
   if (!state.capoManual) {
     const sugg = suggestCapo(weightedChords(), 7)[0];
     state.capo = sugg ? sugg.capo : 0;
@@ -584,14 +625,14 @@ function setSemitones(s: number, octave: number) {
 // ---------------------------------------------------------------- calculs
 function flats(): boolean {
   if (state.flats !== null) return state.flats;
-  return state.analysis ? preferFlats(transposeKey(state.analysis.key, state.semitones)) : false;
+  return state.analysis ? preferFlats(transposeKey(state.analysis.key, shift())) : false;
 }
 
 function soundingChord(c: Chord | null): Chord | null {
-  return c ? transposeChord(c, state.semitones) : null;
+  return c ? transposeChord(c, shift()) : null;
 }
 function shapeChord(c: Chord | null): Chord | null {
-  return c ? transposeChord(c, state.semitones - state.capo) : null;
+  return c ? transposeChord(c, shift() - state.capo) : null;
 }
 
 /** Segments affichés (éventuellement simplifiés en triades, puis regroupés). */
@@ -628,9 +669,9 @@ function chordSheetText(): string {
   const f = flats();
   const lines = [
     `${$('song-title').textContent}`,
-    `Tonalité : ${keyName(transposeKey(state.analysis.key, state.semitones), f)}`,
+    `Tonalité : ${keyName(transposeKey(state.analysis.key, shift()), f)}`,
     state.capo ? `Capo case ${state.capo}` : 'Sans capo',
-    state.semitones ? `Transposé de ${state.semitones > 0 ? '+' : ''}${state.semitones} demi-tons` : '',
+    shift() ? `Transposé de ${shift() > 0 ? '+' : ''}${shift()} demi-tons` : '',
     '',
   ].filter((l, i) => l || i === 4);
   const row: string[] = [];
@@ -642,44 +683,94 @@ function chordSheetText(): string {
   return lines.join('\n');
 }
 
-// ---------------------------------------------------------------- audio transposé
-async function applyAudio() {
-  if (!state.buffer) return;
-  const target = state.semitones;
-  const btn = $<HTMLButtonElement>('apply-audio');
-  btn.disabled = true;
-  const t = mediaTime();
-  const wasPlaying = usingYt() ? ytState === YT_STATE.PLAYING : !player.paused;
+// ---------------------------------------------------------------- son joué (original ou transposé)
+/** Décalage appliqué aux accords affichés ET au son : 0 en mode « original ». */
+function shift(): number {
+  return state.mode === 'voice' ? state.semitones : 0;
+}
+
+let audioTimer = 0;
+let audioToken = 0;
+let audioStatus: '' | 'preparing' | 'error' = '';
+let audioError = '';
+
+function setMode(mode: 'original' | 'voice') {
+  if (mode === state.mode) return;
+  state.mode = mode;
+  try {
+    localStorage.setItem('easymusic.mode', mode);
+  } catch {
+    /* ignore */
+  }
+  state.capoManual = false;
+  setSemitones(state.semitones, state.octave); // recalcule le capo et réaffiche
+  scheduleAudio(0);
+}
+document.querySelectorAll<HTMLButtonElement>('.mode').forEach((b) => (b.onclick = () => setMode(b.dataset.mode as 'original' | 'voice')));
+
+/** Met le son en accord avec les accords affichés (avec un petit délai si on clique plusieurs fois sur +/−). */
+function scheduleAudio(delay = 500) {
+  clearTimeout(audioTimer);
+  audioTimer = window.setTimeout(() => void syncAudio(), delay);
+}
+
+async function syncAudio() {
+  const target = shift();
+  const token = ++audioToken;
+  if (!state.analysis && !state.buffer) return;
+  if (target === state.appliedSemitones && !(state.source === 'file' && !player.src)) {
+    audioStatus = '';
+    return render();
+  }
+  const fromYt = usingYt();
+  const t = fromYt ? yt!.getCurrentTime() : player.currentTime;
+  const wasPlaying = fromYt ? ytState === YT_STATE.PLAYING : !player.paused;
+
+  // retour à la vidéo originale
+  if (state.source === 'youtube' && target === 0) {
+    player.pause();
+    player.hidden = true;
+    state.appliedSemitones = 0;
+    audioStatus = '';
+    if (yt) {
+      commandYt((p) => (p.unMute(), p.seekTo(t, true)));
+      if (wasPlaying) yt.playVideo();
+    }
+    return render();
+  }
+
+  audioStatus = 'preparing';
+  render();
   try {
     let url: string;
-    if (target === 0 && state.source === 'youtube') {
-      // retour à la vidéo d'origine
-      state.appliedSemitones = 0;
-      player.pause();
-      player.hidden = true;
-      yt?.seekTo(t, true);
-      if (wasPlaying) yt?.playVideo();
-      render();
-      return;
+    if (state.source === 'youtube') {
+      if (!currentSongId) return;
+      url = await prepareTransposedAudio(currentSongId, target);
     } else if (target === 0) {
       url = state.originalUrl!;
     } else {
-      setProgress(0, 'Transposition de l’audio…');
-      const chans = await shiftInWorker(state.buffer, target, (f, l) => setProgress(f, l));
-      setProgress(0.98, 'Encodage…');
-      const blob = encodeWav(chans, state.buffer.sampleRate);
+      if (!state.buffer) return;
+      const chans = await shiftInWorker(state.buffer, target);
+      if (token !== audioToken) return;
       if (state.shiftedUrl) URL.revokeObjectURL(state.shiftedUrl);
-      state.shiftedUrl = url = URL.createObjectURL(blob);
+      state.shiftedUrl = url = URL.createObjectURL(encodeWav(chans, state.buffer.sampleRate));
     }
-    state.appliedSemitones = target;
-    if (state.source === 'youtube') yt?.pauseVideo();
-    player.hidden = false;
+    if (token !== audioToken) return; // un autre réglage a été demandé entre-temps
+    if (fromYt) commandYt((p) => (p.mute(), p.pauseVideo()));
     player.src = url;
+    player.hidden = false;
+    await new Promise<void>((r) => {
+      player.addEventListener('loadedmetadata', () => r(), { once: true });
+      player.addEventListener('error', () => r(), { once: true });
+    });
     player.currentTime = t;
+    state.appliedSemitones = target;
+    audioStatus = '';
     if (wasPlaying) void player.play();
-    setProgress(null);
   } catch (err) {
-    setProgress(1, `Erreur : ${(err as Error).message}`);
+    if (token !== audioToken) return;
+    audioStatus = 'error';
+    audioError = (err as Error).message;
   }
   render();
 }
@@ -740,23 +831,30 @@ function render() {
       msg += 'La mélodie est plus étendue que votre tessiture : ce réglage est le meilleur compromis.';
   }
   $('recommend').innerHTML = msg;
-  const btn = $<HTMLButtonElement>('apply-audio');
-  btn.disabled = !state.buffer || state.appliedSemitones === s;
-  btn.textContent = s === 0 ? '🔊 Revenir à l’original' : `🔊 Transposer l’audio (${s > 0 ? '+' : ''}${s})`;
-  $('audio-state').textContent = state.buffer
-    ? state.appliedSemitones === s
-      ? state.appliedSemitones === 0
-        ? 'Lecture : version originale'
-        : `Lecture : version transposée (${s > 0 ? '+' : ''}${s})`
-      : 'L’audio n’est pas encore transposé.'
-    : state.source === 'youtube' && state.analysis
-      ? s
-        ? 'La vidéo garde sa tonalité d’origine : seuls les accords affichés sont transposés.'
-        : ''
-      : '';
-  btn.hidden = !state.buffer;
+  // sélecteur « Original / Ma tonalité » et état du son
+  const sign = (n: number) => (n > 0 ? `+${n}` : String(n));
+  document.querySelectorAll<HTMLElement>('.mode').forEach((b) => b.classList.toggle('active', b.dataset.mode === state.mode));
+  document.querySelectorAll<HTMLElement>('.mode-key-orig').forEach((e) => (e.textContent = a ? keyName(a.key, f).split(' (')[0] : ''));
+  document.querySelectorAll<HTMLElement>('.mode-key-voice').forEach(
+    (e) => (e.textContent = a ? `${keyName(transposeKey(a.key, s), f).split(' (')[0]}${s ? ` (${sign(s)})` : ''}` : s ? sign(s) : ''),
+  );
+  let st = '';
+  if (a || state.buffer) {
+    // le message décrit ce qui joue réellement, pas seulement ce qui est demandé
+    const pending = shift() !== state.appliedSemitones && audioStatus !== 'error';
+    if (audioStatus === 'preparing' || pending)
+      st = state.appliedSemitones
+        ? '⏳ Préparation du son… (le son joue encore dans la tonalité précédente)'
+        : '⏳ Préparation du son transposé… (le son joue encore dans la tonalité originale)';
+    else if (audioStatus === 'error') st = `⚠️ Son transposé indisponible : ${audioError}`;
+    else if (state.mode === 'original') st = '🎵 Accords et son de la chanson originale.';
+    else if (!s) st = '🎤 Votre tonalité est celle de la chanson : rien à transposer.';
+    else st = `🎤 Accords et son transposés de ${sign(s)} demi-ton${Math.abs(s) > 1 ? 's' : ''} pour votre voix.`;
+    if (state.mode === 'voice' && state.octave) st += ` Chantez une octave plus ${state.octave < 0 ? 'bas' : 'haut'} que la voix originale.`;
+  }
+  document.querySelectorAll<HTMLElement>('.audio-state').forEach((e) => (e.textContent = st));
   const dl = $<HTMLAnchorElement>('download');
-  dl.hidden = !(state.shiftedUrl && state.appliedSemitones !== 0);
+  dl.hidden = !(state.source === 'file' && state.shiftedUrl && state.appliedSemitones !== 0);
   if (state.shiftedUrl) {
     dl.href = state.shiftedUrl;
     dl.download = `${$('song-title').textContent} (${state.appliedSemitones > 0 ? '+' : ''}${state.appliedSemitones}).wav`;
@@ -884,6 +982,10 @@ function updateNow() {
 
 function tick() {
   updateNow();
+  if (followingAudio() && !player.paused && performance.now() - ytCommandAt > 1500) {
+    const drift = yt!.getCurrentTime() - player.currentTime;
+    if (Math.abs(drift) > 0.5) commandYt((p) => p.seekTo(player.currentTime, true));
+  }
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);

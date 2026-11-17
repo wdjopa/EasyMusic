@@ -29,7 +29,7 @@ import { startMic, type MicSession } from './ui/mic';
 import { Queue } from './ui/queue';
 import { startPractice, type PracticeSession } from './ui/practice';
 import { judgeChord, judgeVoice, SILENCE_RMS, type LiveFrame, type PracticeMode } from './dsp/live';
-import { createPlayer, parseYouTubeId, YT_STATE, type YTPlayer } from './ui/youtube';
+import { createPlayer, parseYouTubeId, YT_EMBED_BLOCKED, YT_STATE, type YTPlayer } from './ui/youtube';
 import { encodeWav } from './ui/wav';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -490,6 +490,8 @@ async function loadYouTube(url: string) {
   stopListening(false);
   audioToken++;
   audioStatus = '';
+  ytBlocked = false;
+  $('yt-blocked').hidden = true;
   state.lyrics = null;
   lyricsToken++;
   yt?.unMute();
@@ -519,7 +521,8 @@ async function loadYouTube(url: string) {
     // (lancer puis mettre en pause laissait un écran noir sans bouton)
     if (yt) yt.cueVideoById(id);
     else
-      yt = await createPlayer($('yt-player'), id, onYtState, (m) => {
+      yt = await createPlayer($('yt-player'), id, onYtState, (m, code) => {
+        if (YT_EMBED_BLOCKED.includes(code)) return onEmbedBlocked();
         ytError(m);
         stopListening(false);
       });
@@ -743,7 +746,24 @@ function showAnalysis(a: AnalysisResult) {
 
 // ---------------------------------------------------------------- lecture (fichier ou YouTube)
 /** Lecture de la vidéo YouTube d'origine (et non d'une version transposée). */
-const usingYt = () => state.source === 'youtube' && !!yt && state.appliedSemitones === 0;
+/** Vidéo interdite hors de YouTube : on joue alors le son (téléchargé par le serveur) à la place. */
+let ytBlocked = false;
+const usingYt = () => state.source === 'youtube' && !!yt && !ytBlocked && state.appliedSemitones === 0;
+
+function onEmbedBlocked() {
+  if (ytBlocked || state.source !== 'youtube') return;
+  ytBlocked = true;
+  const id = currentSongId;
+  const blocked = $('yt-blocked');
+  blocked.hidden = false;
+  if (id) {
+    blocked.style.backgroundImage = `url(https://i.ytimg.com/vi/${id}/hqdefault.jpg)`;
+    $<HTMLAnchorElement>('yt-open').href = `https://www.youtube.com/watch?v=${id}`;
+  }
+  ytError('');
+  state.appliedSemitones = Number.NaN; // force le chargement du son, même dans la tonalité originale
+  scheduleAudio(0);
+}
 function mediaTime(): number {
   return usingYt() ? yt!.getCurrentTime() : player.currentTime;
 }
@@ -758,7 +778,7 @@ function mediaSeek(t: number) {
 }
 // Son transposé d'une vidéo YouTube : la vidéo reste visible, muette, et suit le son.
 let ytCommandAt = 0;
-const followingAudio = () => state.source === 'youtube' && !!yt && state.appliedSemitones !== 0;
+const followingAudio = () => state.source === 'youtube' && !!yt && !ytBlocked && state.appliedSemitones !== 0;
 function commandYt(fn: (p: YTPlayer) => void) {
   if (!yt) return;
   ytCommandAt = performance.now();
@@ -973,8 +993,8 @@ async function syncAudio() {
   const t = fromYt ? yt!.getCurrentTime() : player.currentTime;
   const wasPlaying = fromYt ? ytState === YT_STATE.PLAYING : !player.paused;
 
-  // retour à la vidéo originale
-  if (state.source === 'youtube' && target === 0) {
+  // retour à la vidéo originale (sauf si elle ne peut pas être lue ici)
+  if (state.source === 'youtube' && target === 0 && !ytBlocked) {
     player.pause();
     player.hidden = true;
     state.appliedSemitones = 0;
@@ -1091,7 +1111,8 @@ function render() {
   if (a || state.buffer) {
     // le message décrit ce qui joue réellement, pas seulement ce qui est demandé
     const pending = shift() !== state.appliedSemitones && audioStatus !== 'error';
-    if (audioStatus === 'preparing' || pending)
+    if ((audioStatus === 'preparing' || pending) && ytBlocked && !shift()) st = '⏳ Préparation du son…';
+    else if (audioStatus === 'preparing' || pending)
       st = state.appliedSemitones
         ? '⏳ Préparation du son… (le son joue encore dans la tonalité précédente)'
         : '⏳ Préparation du son transposé… (le son joue encore dans la tonalité originale)';

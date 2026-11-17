@@ -64,6 +64,9 @@ function loadApi(): Promise<YTNamespace> {
   return apiPromise;
 }
 
+/** Codes d'erreur : vidéo dont le propriétaire interdit la lecture hors de YouTube. */
+export const YT_EMBED_BLOCKED = [101, 150];
+
 export const YT_ERRORS: Record<number, string> = {
   2: 'Lien YouTube invalide.',
   5: 'Cette vidéo ne peut pas être lue dans le lecteur intégré.',
@@ -76,7 +79,7 @@ export async function createPlayer(
   container: HTMLElement,
   videoId: string,
   onState: (state: number) => void,
-  onError: (message: string) => void,
+  onError: (message: string, code: number) => void,
 ): Promise<YTPlayer> {
   const YT = await loadApi();
   container.innerHTML = '<div></div>';
@@ -87,7 +90,7 @@ export async function createPlayer(
       events: {
         onReady: (e) => resolve(e.target),
         onStateChange: (e) => onState(e.data),
-        onError: (e) => onError(YT_ERRORS[e.data] ?? `Erreur du lecteur YouTube (${e.data}).`),
+        onError: (e) => onError(YT_ERRORS[e.data] ?? `Erreur du lecteur YouTube (${e.data}).`, e.data),
       },
     });
   });

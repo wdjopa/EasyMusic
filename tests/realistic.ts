@@ -19,7 +19,12 @@ export function realisticSong(opts: {
   sr: number;
   detuneCents?: number;
   seed?: number;
+  /** Arrangement chargé : 2e guitare en arpèges avec notes de passage, mélodie chromatique. */
+  busy?: boolean;
+  /** Temps par mesure (4 par défaut, 3 pour une valse). */
+  beatsPerBar?: number;
 }): { audio: Float32Array; truth: Truth[] } {
+  const bpb = opts.beatsPerBar ?? 4;
   const { progression, bars, barSeconds, sr } = opts;
   const rand = rng(opts.seed ?? 1);
   const tune = Math.pow(2, (opts.detuneCents ?? 0) / 1200);
@@ -48,8 +53,8 @@ export function realisticSong(opts: {
     truth.push({ start: t0, end: t0 + barSeconds, chord });
     const ivs = QUALITY_INTERVALS[chord.quality];
     // piano : accord sur chaque temps (4 temps)
-    for (let beat = 0; beat < 4; beat++) {
-      for (const iv of ivs) note(55 + ((chord.root + iv - 7 + 12) % 12) + 0, t0 + (beat * barSeconds) / 4, barSeconds / 4, 0.07);
+    for (let beat = 0; beat < bpb; beat++) {
+      for (const iv of ivs) note(55 + ((chord.root + iv - 7 + 12) % 12) + 0, t0 + (beat * barSeconds) / bpb, barSeconds / bpb, 0.07);
     }
     // basse (éventuellement renversée)
     const bassPc = bass ?? chord.root;
@@ -63,15 +68,31 @@ export function realisticSong(opts: {
       note(65 + ((deg + (progression[0].chord.root)) % 12), t, d * 0.95, 0.3, { vibrato: 0.006 });
       t += d;
     }
+    if (opts.busy) {
+      // 2e guitare : arpèges en croches, avec une note de passage (hors accord) sur certains contretemps
+      const tones = ivs.map((iv) => 60 + ((chord.root + iv) % 12));
+      for (let k = 0; k < 8; k++) {
+        const passing = k % 2 === 1 && rand() < 0.5;
+        const m = passing ? tones[0] + [1, 2, 5, -1][Math.floor(rand() * 4)] : tones[k % tones.length];
+        note(m, t0 + (k * barSeconds) / 8, barSeconds / 8, 0.12, { bright: 1.2 });
+      }
+      // phrase de guitare solo sur la 2e moitié d'une mesure sur deux : notes de la gamme, souvent hors accord
+      if (b % 2 === 1) {
+        for (let k = 0; k < 4; k++) {
+          const deg = [0, 2, 4, 5, 7, 9, 11][Math.floor(rand() * 7)];
+          note(72 + ((deg + progression[0].chord.root) % 12), t0 + barSeconds / 2 + (k * barSeconds) / 8, barSeconds / 8, 0.2, { vibrato: 0.01 });
+        }
+      }
+    }
     // batterie : grosse caisse (sinus descendant) + caisse claire / charleston (bruit)
-    for (let beat = 0; beat < 4; beat++) {
-      const s0 = Math.floor((t0 + (beat * barSeconds) / 4) * sr);
+    for (let beat = 0; beat < bpb; beat++) {
+      const s0 = Math.floor((t0 + (beat * barSeconds) / bpb) * sr);
       for (let i = 0; i < 0.12 * sr && s0 + i < len; i++) {
         const tt = i / sr;
-        if (beat % 2 === 0) out[s0 + i] += 0.5 * Math.sin(2 * Math.PI * (50 + 80 * Math.exp(-tt * 30)) * tt) * Math.exp(-tt * 18);
+        if (bpb === 3 ? beat === 0 : beat % 2 === 0) out[s0 + i] += 0.5 * Math.sin(2 * Math.PI * (50 + 80 * Math.exp(-tt * 30)) * tt) * Math.exp(-tt * 18);
         else out[s0 + i] += 0.25 * (rand() * 2 - 1) * Math.exp(-tt * 25);
       }
-      const h0 = s0 + Math.floor((barSeconds / 8) * sr);
+      const h0 = s0 + Math.floor((barSeconds / (2 * bpb)) * sr);
       for (let i = 0; i < 0.04 * sr && h0 + i < len; i++) out[h0 + i] += 0.08 * (rand() * 2 - 1) * Math.exp(-(i / sr) * 80);
     }
   }
@@ -99,4 +120,24 @@ export function frameAccuracy(
     }
   }
   return ok / total;
+}
+
+/** Nombre de changements d'accord (vue simplifiée) qui ne tombent pas près d'un début de mesure. */
+export function offGridChanges(
+  segs: { start: number; chord: Chord | null }[],
+  truth: Truth[],
+  simplify: (c: Chord) => Chord,
+  tolerance = 0.2,
+): number {
+  let n = 0;
+  let last = '';
+  for (const s of segs) {
+    const c = s.chord ? simplify(s.chord) : null;
+    const k = c ? `${c.root}:${c.quality}` : 'N';
+    const end = truth[truth.length - 1].end;
+    const onBar = truth.some((t) => Math.abs(t.start - s.start) < tolerance) || Math.abs(end - s.start) < tolerance;
+    if (last && k !== last && !onBar) n++;
+    last = k;
+  }
+  return n;
 }

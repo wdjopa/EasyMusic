@@ -8,7 +8,7 @@ import { decimate, toMono } from './resample';
 import { stft } from './spectrum';
 
 /** À incrémenter quand l'algorithme change : les analyses plus anciennes sont refaites. */
-export const ANALYSIS_VERSION = 2;
+export const ANALYSIS_VERSION = 3;
 
 export interface AnalysisResult {
   version?: number;

@@ -270,10 +270,8 @@ export function mergeShort(segs: ChordSegment[], minDuration: number): ChordSegm
   return out;
 }
 
-/** Probabilité de changer d'accord selon la position dans la mesure (4 temps)… */
-const CHANGE_PROB_4 = [0.45, 0.03, 0.15, 0.03];
-/** …ou dans la demi-mesure, pour les morceaux où les accords changent tous les 2 temps. */
-const CHANGE_PROB_2 = [0.45, 0.04];
+/** Gain minimal (en points de score) pour couper une mesure en deux accords. */
+const SPLIT_MARGIN = 6;
 
 /**
  * Décodage « musical » : un accord dure au moins un temps et change surtout
@@ -317,8 +315,10 @@ function decodeOnBeats(
     beatChroma.push(c);
   }
 
-  const CHANGE_PROB = opts.harmonicBeats === 2 ? CHANGE_PROB_2 : CHANGE_PROB_4;
-  const cycle = CHANGE_PROB.length;
+  // unité harmonique : nombre de temps d'un accord « typique » (mesure à 4 ou 3 temps, ou demi-mesure)
+  const hb = opts.harmonicBeats;
+  const unitLen = hb === 2 ? 2 : hb === 3 || hb === 6 ? 3 : 4;
+  const cycle = unitLen;
   // début des mesures : phase où l'harmonie change le plus
   const novelty = new Float64Array(B);
   for (let b = 1; b < B; b++) {
@@ -345,44 +345,94 @@ function decodeOnBeats(
     }
   }
 
-  // Viterbi sur les temps
-  let prev = Float64Array.from(E[0]);
-  const back: Uint16Array[] = new Array(B);
-  for (let b = 1; b < B; b++) {
-    const pc = CHANGE_PROB[(((b - phase) % cycle) + cycle) % cycle];
-    const logStay = Math.log(1 - pc);
-    const logMove = Math.log(pc / (S - 1));
-    let bestPrev = 0;
-    for (let s = 1; s < S; s++) if (prev[s] > prev[bestPrev]) bestPrev = s;
-    const cur = new Float64Array(S);
-    const bp = new Uint16Array(S);
-    const move = prev[bestPrev] + logMove;
-    for (let s = 0; s < S; s++) {
-      const stay = prev[s] + logStay;
-      if (stay >= move) {
-        cur[s] = stay + E[b][s];
-        bp[s] = s;
-      } else {
-        cur[s] = move + E[b][s];
-        bp[s] = bestPrev;
-      }
-    }
-    back[b] = bp;
-    prev = cur;
-  }
-  const path = new Uint16Array(B);
-  let last = 0;
-  for (let s = 1; s < S; s++) if (prev[s] > prev[last]) last = s;
-  path[B - 1] = last;
-  for (let b = B - 1; b > 0; b--) path[b - 1] = back[b][path[b]];
-
-  // segments ; confiance = part des temps où l'accord choisi est (presque) le meilleur
   const simple = (s: number) => {
     if (s === NC) return -1;
     const c = templates[s].chord;
     const q = c.quality === 'min' || c.quality === 'm7' ? 1 : c.quality === 'dim' ? 2 : 0;
     return c.root * 3 + q;
   };
+  // Unités harmoniques : 1 accord par mesure (ou par demi-mesure si le morceau change tous les 2 temps).
+  // L'accord est choisi sur toute l'unité : une note de mélodie sur un seul temps ne peut pas créer un accord.
+  const unitStarts: number[] = [];
+  for (let b = 0; b < B; b++) if (b === 0 || (((b - phase) % unitLen) + unitLen) % unitLen === 0) unitStarts.push(b);
+  unitStarts.push(B);
+  const U = unitStarts.length - 1;
+  const sumRange = (from: number, to: number) => {
+    const e = new Float64Array(S);
+    for (let b = from; b < to; b++) for (let s2 = 0; s2 < S; s2++) e[s2] += E[b][s2];
+    return e;
+  };
+  const UE = Array.from({ length: U }, (_, u) => sumRange(unitStarts[u], unitStarts[u + 1]));
+  const argmax = (e: Float64Array) => {
+    let k = 0;
+    for (let s2 = 1; s2 < S; s2++) if (e[s2] > e[k]) k = s2;
+    return k;
+  };
+
+  // Viterbi sur les unités (changer d'accord d'une unité à l'autre est normal, pas pénalisé lourdement)
+  let prev = Float64Array.from(UE[0]);
+  const back: Uint16Array[] = new Array(U);
+  const logStay = Math.log(0.5);
+  const logMove = Math.log(0.5 / (S - 1));
+  for (let u = 1; u < U; u++) {
+    const bestPrev = argmax(prev);
+    const cur = new Float64Array(S);
+    const bp = new Uint16Array(S);
+    const move = prev[bestPrev] + logMove;
+    for (let s2 = 0; s2 < S; s2++) {
+      const stay = prev[s2] + logStay;
+      if (stay >= move) {
+        cur[s2] = stay + UE[u][s2];
+        bp[s2] = s2;
+      } else {
+        cur[s2] = move + UE[u][s2];
+        bp[s2] = bestPrev;
+      }
+    }
+    back[u] = bp;
+    prev = cur;
+  }
+  const unitPath = new Uint16Array(U);
+  unitPath[U - 1] = argmax(prev);
+  for (let u = U - 1; u > 0; u--) unitPath[u - 1] = back[u][unitPath[u]];
+
+  // chemin par temps ; une mesure n'est coupée en deux que si ses deux moitiés sont nettement différentes
+  const path = new Uint16Array(B);
+  for (let u = 0; u < U; u++) {
+    const a0 = unitStarts[u];
+    const a1 = unitStarts[u + 1];
+    let cut = -1;
+    let c1 = unitPath[u];
+    let c2 = unitPath[u];
+    if (unitLen === 4 && a1 - a0 === 4) {
+      const h1 = sumRange(a0, a0 + 2);
+      const h2 = sumRange(a0 + 2, a1);
+      const b1 = argmax(h1);
+      const b2 = argmax(h2);
+      const gain = h1[b1] + h2[b2] - UE[u][unitPath[u]];
+      // règle musicale : un changement en milieu de mesure s'accompagne d'un changement de basse
+      const bassNote = (from: number, to: number) => {
+        const acc = new Float64Array(12);
+        for (let b = from; b < to; b++) for (let i = 0; i < 12; i++) acc[i] += beatChroma[b][12 + i];
+        let k = 0;
+        for (let i = 1; i < 12; i++) if (acc[i] > acc[k]) k = i;
+        return acc[k] > 0 ? k : -1;
+      };
+      const bass1 = bassNote(a0, a0 + 2);
+      const bass2 = bassNote(a0 + 2, a1);
+      const inChord = (st: number, pc: number) =>
+        st !== NC && pc >= 0 && QUALITY_INTERVALS[templates[st].chord.quality].some((iv) => mod12(templates[st].chord.root + iv) === pc);
+      const bassMoves = bass1 !== bass2 && inChord(b2, bass2) && !inChord(b1, bass2);
+      if (b1 !== b2 && simple(b1) !== simple(b2) && gain > SPLIT_MARGIN && bassMoves) {
+        cut = a0 + 2;
+        c1 = b1;
+        c2 = b2;
+      }
+    }
+    for (let b = a0; b < a1; b++) path[b] = cut >= 0 && b >= cut ? c2 : c1;
+  }
+
+  // segments ; confiance = part des temps où l'accord choisi est (presque) le meilleur
   const segs: ChordSegment[] = [];
   let start = 0;
   for (let b = 1; b <= B; b++) {

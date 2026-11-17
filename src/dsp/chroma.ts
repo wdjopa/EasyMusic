@@ -1,6 +1,9 @@
 import { freqToMidi } from '../music/theory';
 import type { Spectrogram } from './spectrum';
 
+/** Au-delà, les notes (mélodie, solos) pèsent de moins en moins dans le choix de l'accord. */
+const TREBLE_HZ = 900;
+
 /**
  * Chromagramme : énergie par classe de hauteur (12 valeurs) pour chaque trame.
  * On ne garde que les pics spectraux (réduction du bruit / des percussions)
@@ -36,7 +39,8 @@ function pitchClassProfile(spec: Spectrogram, fMin: number, fMax: number): Float
       const nearest = Math.round(midi);
       const dev = Math.abs(midi - nearest);
       if (dev > 0.4) continue;
-      const weight = Math.cos((dev / 0.4) * (Math.PI / 2)) ** 2;
+      // l'aigu (mélodie, solos) compte moins que le médium (guitare rythmique, piano) qui porte l'accord
+      const weight = (Math.cos((dev / 0.4) * (Math.PI / 2)) ** 2) * (1 / (1 + (f / TREBLE_HZ) ** 2));
       c[((nearest % 12) + 12) % 12] += m * m * weight;
     }
     for (let i = 0; i < 12; i++) c[i] = Math.sqrt(c[i]);

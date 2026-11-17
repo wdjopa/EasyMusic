@@ -203,10 +203,43 @@ export function trackBeats(x: Float32Array, sr: number, harmonic?: number): Beat
     t = back[t];
   }
   beats.reverse();
+  // la plupart des morceaux ont un tempo fixe : si les temps s'alignent sur une grille régulière,
+  // on utilise cette grille (pas d'accélérations / ralentissements parasites)
+  const regular = fitRegularGrid(beats);
+  if (regular) {
+    beats.length = 0;
+    beats.push(...regular.beats);
+  }
   // compléter la grille au début et à la fin du morceau
   const dur = x.length / sr;
   const step = 60 / bpm;
   while (beats.length && beats[0] - step > 0) beats.unshift(beats[0] - step);
   while (beats.length && beats[beats.length - 1] + step < dur) beats.push(beats[beats.length - 1] + step);
-  return { bpm, beats };
+  return { bpm: regular ? 60 / regular.period : bpm, beats };
+}
+
+/** Ajuste une grille t = t0 + k × période (moindres carrés) ; renvoie null si le jeu est trop libre. */
+export function fitRegularGrid(beats: number[]): { beats: number[]; period: number } | null {
+  const n = beats.length;
+  if (n < 8) return null;
+  // indices de temps (gère un temps manqué ou doublé)
+  const p0 = (beats[n - 1] - beats[0]) / (n - 1);
+  const idx = beats.map((b) => Math.round((b - beats[0]) / p0));
+  let sx = 0;
+  let sy = 0;
+  let sxx = 0;
+  let sxy = 0;
+  for (let i = 0; i < n; i++) {
+    sx += idx[i];
+    sy += beats[i];
+    sxx += idx[i] * idx[i];
+    sxy += idx[i] * beats[i];
+  }
+  const period = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+  const t0 = (sy - period * sx) / n;
+  const res = beats.map((b, i) => Math.abs(b - (t0 + period * idx[i]))).sort((a, b) => a - b);
+  const median = res[Math.floor(n / 2)];
+  if (!(period > 0) || median > Math.max(0.04, period * 0.08)) return null;
+  const last = idx[n - 1];
+  return { period, beats: Array.from({ length: last + 1 }, (_, k) => t0 + period * k) };
 }

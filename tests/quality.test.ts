@@ -13,6 +13,8 @@ const songs = [
   { name: 'C chargé (2 guitares + solo)', prog: [{ chord: { root: 0, quality: 'maj' } }, { chord: { root: 7, quality: 'maj' }, bass: 11 }, { chord: { root: 9, quality: 'min' } }, { chord: { root: 5, quality: 'maj' } }], bar: 2.0, detune: 0, busy: true },
   { name: 'Em chargé (2 guitares + solo)', prog: [{ chord: { root: 4, quality: 'min' } }, { chord: { root: 0, quality: 'maj' } }, { chord: { root: 7, quality: 'maj' } }, { chord: { root: 2, quality: 'maj' } }], bar: 2.4, detune: -10, busy: true },
   { name: 'Valse en G (3 temps)', prog: [{ chord: { root: 7, quality: 'maj' } }, { chord: { root: 0, quality: 'maj' } }, { chord: { root: 2, quality: 'maj' } }, { chord: { root: 7, quality: 'maj' } }, { chord: { root: 4, quality: 'min' } }, { chord: { root: 0, quality: 'maj' } }, { chord: { root: 2, quality: 'maj' } }, { chord: { root: 2, quality: 'maj' } }], bar: 1.8, detune: 0, beatsPerBar: 3 },
+  { name: 'Pop 2 mesures/accord + anticipations', prog: [{ chord: { root: 9, quality: 'min' } }, { chord: { root: 5, quality: 'maj' } }, { chord: { root: 0, quality: 'maj' } }, { chord: { root: 7, quality: 'maj' } }], bar: 2.0, detune: 5, busy: true, anticipation: 0.6, barsPerChord: 2 },
+  { name: 'Ballade 2 mesures/accord, solo', prog: [{ chord: { root: 2, quality: 'maj' } }, { chord: { root: 11, quality: 'min' } }, { chord: { root: 9, quality: 'maj' } }, { chord: { root: 7, quality: 'maj' } }], bar: 2.6, detune: -15, busy: true, anticipation: 0.3, barsPerChord: 2 },
 ] as const;
 
 // Qualité de la détection sur des morceaux de synthèse réalistes (batterie, voix, renversements, désaccordage).
@@ -20,7 +22,7 @@ it('détecte les accords (≥ 95 % en moyenne) en respectant la cadence des mesu
   let sum = 0;
   let offTotal = 0;
   for (const s of songs) {
-    const { audio, truth } = realisticSong({ progression: s.prog as never, bars: 24, barSeconds: s.bar, sr: 22050, detuneCents: s.detune, seed: 7, busy: 'busy' in s && s.busy, beatsPerBar: 'beatsPerBar' in s ? s.beatsPerBar : 4 });
+    const { audio, truth } = realisticSong({ progression: s.prog as never, bars: 'barsPerChord' in s ? 48 : 24, barSeconds: s.bar, sr: 22050, detuneCents: s.detune, seed: 7, busy: 'busy' in s && s.busy, beatsPerBar: 'beatsPerBar' in s ? s.beatsPerBar : 4, anticipation: 'anticipation' in s ? s.anticipation : 0, barsPerChord: 'barsPerChord' in s ? s.barsPerChord : 1 });
     const res = analyze([audio], 22050);
     const acc = frameAccuracy(res.segments, truth, simplifyChord);
     const off = offGridChanges(res.segments, truth, simplifyChord);

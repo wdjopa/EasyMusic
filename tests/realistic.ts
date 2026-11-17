@@ -23,6 +23,10 @@ export function realisticSong(opts: {
   busy?: boolean;
   /** Temps par mesure (4 par défaut, 3 pour une valse). */
   beatsPerBar?: number;
+  /** Probabilité qu'un accord soit anticipé d'une croche (attaqué avant la barre de mesure). */
+  anticipation?: number;
+  /** Nombre de mesures par accord (rythme harmonique). */
+  barsPerChord?: number;
 }): { audio: Float32Array; truth: Truth[] } {
   const bpb = opts.beatsPerBar ?? 4;
   const { progression, bars, barSeconds, sr } = opts;
@@ -47,10 +51,18 @@ export function realisticSong(opts: {
     }
   };
 
+  const bpc = opts.barsPerChord ?? 1;
   for (let b = 0; b < bars; b++) {
-    const { chord, bass } = progression[b % progression.length];
+    const { chord, bass } = progression[Math.floor(b / bpc) % progression.length];
     const t0 = b * barSeconds;
-    truth.push({ start: t0, end: t0 + barSeconds, chord });
+    if (b % bpc === 0) truth.push({ start: t0, end: t0 + barSeconds * bpc, chord });
+    // anticipation : l'accord suivant est attaqué une croche avant la mesure suivante
+    const nextBar = b + 1;
+    if (opts.anticipation && nextBar % bpc === 0 && nextBar < bars && rand() < opts.anticipation) {
+      const nxt = progression[Math.floor(nextBar / bpc) % progression.length].chord;
+      const ta = t0 + barSeconds - barSeconds / (2 * bpb);
+      for (const iv of QUALITY_INTERVALS[nxt.quality]) note(55 + ((nxt.root + iv - 7 + 12) % 12), ta, barSeconds / (2 * bpb) + 0.3, 0.09);
+    }
     const ivs = QUALITY_INTERVALS[chord.quality];
     // piano : accord sur chaque temps (4 temps)
     for (let beat = 0; beat < bpb; beat++) {

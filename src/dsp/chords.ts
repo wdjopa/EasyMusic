@@ -270,6 +270,10 @@ export function mergeShort(segs: ChordSegment[], minDuration: number): ChordSegm
   return out;
 }
 
+/** Écart de score (par mesure) en dessous duquel un accord isolé trop court est rattaché à son voisin. */
+const REGULARIZE_MARGIN = 5;
+/** …ou plus volontiers quand ce rattachement redonne à l'accord voisin la durée typique. */
+const REGULARIZE_MARGIN_COMPLETE = 25;
 /** Gain minimal (en points de score) pour couper une mesure en deux accords. */
 const SPLIT_MARGIN = 6;
 
@@ -362,7 +366,8 @@ function decodeOnBeats(
     for (let b = from; b < to; b++) for (let s2 = 0; s2 < S; s2++) e[s2] += E[b][s2];
     return e;
   };
-  const UE = Array.from({ length: U }, (_, u) => sumRange(unitStarts[u], unitStarts[u + 1]));
+  const rawUE = Array.from({ length: U }, (_, u) => sumRange(unitStarts[u], unitStarts[u + 1]));
+  const { UE, matches } = shareAcrossRepetitions(rawUE, unitStarts, beatChroma);
   const argmax = (e: Float64Array) => {
     let k = 0;
     for (let s2 = 1; s2 < S; s2++) if (e[s2] > e[k]) k = s2;
@@ -396,40 +401,47 @@ function decodeOnBeats(
   unitPath[U - 1] = argmax(prev);
   for (let u = U - 1; u > 0; u--) unitPath[u - 1] = back[u][unitPath[u]];
 
-  // chemin par temps ; une mesure n'est coupée en deux que si ses deux moitiés sont nettement différentes
+  regularizeDurations(unitPath, UE, simple);
+
+  // Coupure d'une mesure en deux accords (milieu de mesure) : seulement si les deux moitiés sont nettement
+  // différentes ET que la basse change aussi vers une note du nouvel accord.
+  const bassNote = (from: number, to: number) => {
+    const acc = new Float64Array(12);
+    for (let b = from; b < to; b++) for (let i = 0; i < 12; i++) acc[i] += beatChroma[b][12 + i];
+    let k = 0;
+    for (let i = 1; i < 12; i++) if (acc[i] > acc[k]) k = i;
+    return acc[k] > 0 ? k : -1;
+  };
+  const inChord = (st: number, pc: number) =>
+    st !== NC && pc >= 0 && QUALITY_INTERVALS[templates[st].chord.quality].some((iv) => mod12(templates[st].chord.root + iv) === pc);
+  const splits: ({ c1: number; c2: number } | null)[] = Array.from({ length: U }, (_, u) => {
+    const a0 = unitStarts[u];
+    const a1 = unitStarts[u + 1];
+    if (unitLen !== 4 || a1 - a0 !== 4) return null;
+    const h1 = sumRange(a0, a0 + 2);
+    const h2 = sumRange(a0 + 2, a1);
+    const b1 = argmax(h1);
+    const b2 = argmax(h2);
+    const gain = h1[b1] + h2[b2] - UE[u][unitPath[u]];
+    const bass1 = bassNote(a0, a0 + 2);
+    const bass2 = bassNote(a0 + 2, a1);
+    const bassMoves = bass1 !== bass2 && inChord(b2, bass2) && !inChord(b1, bass2);
+    return b1 !== b2 && simple(b1) !== simple(b2) && gain > SPLIT_MARGIN && bassMoves ? { c1: b1, c2: b2 } : null;
+  });
+  // cohérence avec les répétitions : si les autres occurrences du même passage ne sont pas coupées
+  // de la même façon, la coupure vient sans doute d'un élément ponctuel (fill, solo) et on l'ignore
+  const keepSplit = splits.map((sp, u) => {
+    if (!sp || !matches[u].length) return !!sp;
+    const same = matches[u].filter((v) => splits[v] && simple(splits[v]!.c1) === simple(sp.c1) && simple(splits[v]!.c2) === simple(sp.c2));
+    return same.length >= matches[u].length / 2;
+  });
+
   const path = new Uint16Array(B);
   for (let u = 0; u < U; u++) {
     const a0 = unitStarts[u];
     const a1 = unitStarts[u + 1];
-    let cut = -1;
-    let c1 = unitPath[u];
-    let c2 = unitPath[u];
-    if (unitLen === 4 && a1 - a0 === 4) {
-      const h1 = sumRange(a0, a0 + 2);
-      const h2 = sumRange(a0 + 2, a1);
-      const b1 = argmax(h1);
-      const b2 = argmax(h2);
-      const gain = h1[b1] + h2[b2] - UE[u][unitPath[u]];
-      // règle musicale : un changement en milieu de mesure s'accompagne d'un changement de basse
-      const bassNote = (from: number, to: number) => {
-        const acc = new Float64Array(12);
-        for (let b = from; b < to; b++) for (let i = 0; i < 12; i++) acc[i] += beatChroma[b][12 + i];
-        let k = 0;
-        for (let i = 1; i < 12; i++) if (acc[i] > acc[k]) k = i;
-        return acc[k] > 0 ? k : -1;
-      };
-      const bass1 = bassNote(a0, a0 + 2);
-      const bass2 = bassNote(a0 + 2, a1);
-      const inChord = (st: number, pc: number) =>
-        st !== NC && pc >= 0 && QUALITY_INTERVALS[templates[st].chord.quality].some((iv) => mod12(templates[st].chord.root + iv) === pc);
-      const bassMoves = bass1 !== bass2 && inChord(b2, bass2) && !inChord(b1, bass2);
-      if (b1 !== b2 && simple(b1) !== simple(b2) && gain > SPLIT_MARGIN && bassMoves) {
-        cut = a0 + 2;
-        c1 = b1;
-        c2 = b2;
-      }
-    }
-    for (let b = a0; b < a1; b++) path[b] = cut >= 0 && b >= cut ? c2 : c1;
+    const sp = keepSplit[u] ? splits[u] : null;
+    for (let b = a0; b < a1; b++) path[b] = sp ? (b >= a0 + 2 ? sp.c2 : sp.c1) : unitPath[u];
   }
 
   // segments ; confiance = part des temps où l'accord choisi est (presque) le meilleur
@@ -482,4 +494,102 @@ export function chordCandidates(chroma: Float32Array, bass?: Float32Array, key?:
     const score = 22 * dot * tp.prior + BASS_ROOT * b[r] * b[r] + BASS_TONE * other * other + (key && isDiatonic(tp.chord, key) ? KEY_BONUS : 0);
     return { chord: tp.chord, score };
   }).sort((x, y) => y.score - x.score);
+}
+
+/**
+ * Cohérence entre les passages répétés (Mauch, Noland & Dixon, ISMIR 2009) :
+ * un couplet ou un refrain revient avec les mêmes accords. Pour chaque mesure, on cherche
+ * les mesures qui lui ressemblent ET dont le voisinage (2 mesures avant et après) ressemble aussi,
+ * et on met en commun leurs scores. Une mesure brouillée (solo, bruit) est ainsi corrigée par
+ * les autres occurrences du même passage.
+ */
+export function shareAcrossRepetitions(
+  UE: Float64Array[],
+  unitStarts: number[],
+  beatChroma: Float64Array[],
+): { UE: Float64Array[]; matches: number[][] } {
+  const U = UE.length;
+  if (U < 8) return { UE, matches: UE.map(() => []) };
+  const feat = Array.from({ length: U }, (_, u) => {
+    const v = new Float64Array(24);
+    for (let b = unitStarts[u]; b < unitStarts[u + 1]; b++) for (let i = 0; i < 24; i++) v[i] += beatChroma[b][i];
+    const n = Math.hypot(...v) || 1;
+    for (let i = 0; i < 24; i++) v[i] /= n;
+    return v;
+  });
+  const sim = (a: number, b: number) => {
+    let d = 0;
+    for (let i = 0; i < 24; i++) d += feat[a][i] * feat[b][i];
+    return d;
+  };
+  const S = UE[0].length;
+  const allMatches: number[][] = [];
+  const shared = UE.map((own, u) => {
+    const matches: number[] = [];
+    allMatches.push(matches);
+    for (let v = 0; v < U; v++) {
+      if (Math.abs(u - v) < 2) continue;
+      let ctx = 0;
+      let n = 0;
+      // on compare le voisinage (2 mesures avant / après), pas la mesure elle-même : si elle est brouillée,
+      // elle ne ressemble plus à ses répétitions, mais ses voisines si
+      for (let k = -2; k <= 2; k++) {
+        if (k === 0 || u + k < 0 || v + k < 0 || u + k >= U || v + k >= U) continue;
+        ctx += sim(u + k, v + k);
+        n++;
+      }
+      if (n >= 3 && ctx / n >= 0.92) matches.push(v);
+    }
+    if (!matches.length) return own;
+    const out = new Float64Array(S);
+    for (let s = 0; s < S; s++) {
+      let m = 0;
+      for (const v of matches) m += UE[v][s];
+      out[s] = 0.5 * own[s] + 0.5 * (m / matches.length);
+    }
+    return out;
+  });
+  return { UE: shared, matches: allMatches };
+}
+
+/**
+ * Régularisation des durées, après le calcul : on mesure la durée typique d'un accord dans le
+ * morceau (en mesures). Un accord isolé plus court que cette durée, et que le son ne soutient pas
+ * nettement, est rattaché à l'accord voisin le plus plausible.
+ */
+export function regularizeDurations(path: Uint16Array, UE: Float64Array[], simple: (s: number) => number): void {
+  const runs: { start: number; len: number }[] = [];
+  for (let u = 0; u < path.length; u++) {
+    if (u > 0 && simple(path[u]) === simple(path[u - 1])) runs[runs.length - 1].len++;
+    else runs.push({ start: u, len: 1 });
+  }
+  if (runs.length < 5) return;
+  const inner = runs.slice(1, -1).map((r) => r.len).sort((a, b) => a - b);
+  const typical = inner[Math.floor(inner.length / 2)];
+  if (typical < 2) return;
+  for (let i = 1; i < runs.length - 1; i++) {
+    const r = runs[i];
+    if (r.len >= typical) continue;
+    const cur = path[r.start];
+    const loss = (alt: number) => {
+      let l = 0;
+      for (let u = r.start; u < r.start + r.len; u++) l += UE[u][cur] - UE[u][alt];
+      return l;
+    };
+    const prev = path[r.start - 1];
+    const next = path[r.start + r.len];
+    // on complète d'abord le voisin resté trop court
+    const prevRun = runs[i - 1];
+    const candidates = [prev, next].sort((a, b) => (a === prev && prevRun.len < typical ? -1 : 0) || loss(a) - loss(b));
+    const alt = candidates[0];
+    // si le rattachement redonne à l'accord voisin sa durée typique, on l'accepte plus volontiers
+    const neighbor = alt === prev ? prevRun : runs[i + 1];
+    const completes = neighbor.len + r.len === typical;
+    const margin = (completes ? REGULARIZE_MARGIN_COMPLETE : REGULARIZE_MARGIN) * r.len;
+    if (loss(alt) < margin) {
+      for (let u = r.start; u < r.start + r.len; u++) path[u] = alt;
+      neighbor.len += r.len;
+      r.len = 0;
+    }
+  }
 }

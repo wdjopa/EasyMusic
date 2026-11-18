@@ -3,6 +3,7 @@ import { ANALYSIS_VERSION } from '../dsp/analyze';
 import { parseYouTubeId } from '../shared/youtubeId';
 import { analyzeVideo, fetchFeatures, fetchLyrics, transcribeLyrics } from './api';
 import { getSong, saveLyrics, saveSong } from './library';
+import { songAudio } from './localAudio';
 
 export interface QueueItem {
   id: string; // identifiant YouTube
@@ -155,6 +156,10 @@ export class Queue {
       } catch {
         /* les paroles seront recherchées à l'ouverture */
       }
+      // l'audio est gardé dans le navigateur dès maintenant (le serveur l'a encore en cache)
+      item.label = 'Enregistrement du son…';
+      this.emit();
+      await songAudio(item.id).catch(() => {});
       Object.assign(item, { status: 'done', progress: 1, label: 'Prête' });
     } catch (e) {
       if (check()) return;

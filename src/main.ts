@@ -24,12 +24,14 @@ import {
   transposeKey,
   VOICE_TYPES,
 } from './music/theory';
-import { analyzeVideo, fetchFeatures, fetchLyrics, prepareTransposedAudio, transcribeLyrics } from './ui/api';
+import { analyzeVideo, fetchFeatures, fetchLyrics, transcribeLyrics } from './ui/api';
 import type { Lyrics } from './shared/lyrics';
 import { getSong, listSongs, removeSong, saveLyrics, savePrefs, saveSong, type LibrarySong } from './ui/library';
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
 import { startMic, type MicSession } from './ui/mic';
 import { Queue } from './ui/queue';
+import { deleteAudio, loadStoredIds, onStoredChange, storedIds } from './ui/audioStore';
+import { localAudioUrl, songAudio } from './ui/localAudio';
 import { headline, saveSession, sessionHistory, SessionRecorder, type Passage, type PassageReport } from './ui/session';
 import { startPractice, type PracticeSession } from './ui/practice';
 import { heardChordTones, judgeChord, judgeVoice, SILENCE_RMS, type LiveFrame, type PracticeMode } from './dsp/live';
@@ -357,7 +359,7 @@ function renderCatalogue() {
       (s) => `<div class="song-wrap"><button class="song" data-id="${s.id}">
         <img src="${s.thumbnail}" alt="" loading="lazy" />
         <span class="info"><span class="t">${escapeHtml(s.title)}</span>
-        <span class="a">${escapeHtml(s.author)}</span>
+        <span class="a">${escapeHtml(s.author)}${storedIds.has(s.id) ? ' · <span class="saved" title="Son enregistré dans ce navigateur : pas de nouveau téléchargement">💾 son gardé</span>' : ''}</span>
         <span class="a">${keyName(s.prefs ? transposeKey(s.analysis.key, s.prefs.semitones) : s.analysis.key).split(' (')[0]}${
           s.prefs?.semitones ? ` (${s.prefs.semitones > 0 ? '+' : ''}${s.prefs.semitones})` : ''
         } · ${formatTime(s.duration)}</span></span>
@@ -369,6 +371,7 @@ function renderCatalogue() {
       const song = catalogue.find((x) => x.id === b.dataset.del);
       if (song && confirm(`Retirer « ${song.title} » du catalogue ?`)) {
         removeSong(song.id);
+        void deleteAudio(song.id);
         refreshCatalogue();
       }
     };
@@ -554,6 +557,7 @@ async function loadYouTube(url: string) {
     if (token.cancelled) return;
     setProgress(null);
     saveSong(song);
+    if (!storedIds.has(id)) void songAudio(id).catch(() => {}); // téléchargé une fois, gardé dans le navigateur
     // une ancienne analyse refaite garde les réglages de l'utilisateur
     openSong({ ...song, prefs: saved?.prefs, lyrics: saved?.lyrics });
     refreshCatalogue();
@@ -965,6 +969,7 @@ function shift(): number {
 let audioTimer = 0;
 let audioToken = 0;
 let audioStatus: '' | 'preparing' | 'error' = '';
+let audioLabel = '';
 let audioError = '';
 
 function setMode(mode: 'original' | 'voice') {
@@ -1013,12 +1018,18 @@ async function syncAudio() {
   }
 
   audioStatus = 'preparing';
+  audioLabel = '';
   render();
   try {
     let url: string;
     if (state.source === 'youtube') {
       if (!currentSongId) return;
-      url = await prepareTransposedAudio(currentSongId, target);
+      // audio gardé dans le navigateur (téléchargé une seule fois), transposé sur place
+      url = await localAudioUrl(currentSongId, target, (label) => {
+        if (token !== audioToken) return;
+        audioLabel = label;
+        document.querySelectorAll<HTMLElement>('.audio-state').forEach((e) => (e.textContent = `⏳ ${label}`));
+      });
     } else if (target === 0) {
       url = state.originalUrl!;
     } else {
@@ -1039,6 +1050,7 @@ async function syncAudio() {
     player.currentTime = t;
     state.appliedSemitones = target;
     audioStatus = '';
+    audioLabel = '';
     if (wasPlaying) void player.play();
   } catch (err) {
     if (token !== audioToken) return;
@@ -1117,7 +1129,8 @@ function render() {
   if (a || state.buffer) {
     // le message décrit ce qui joue réellement, pas seulement ce qui est demandé
     const pending = shift() !== state.appliedSemitones && audioStatus !== 'error';
-    if ((audioStatus === 'preparing' || pending) && ytBlocked && !shift()) st = '⏳ Préparation du son…';
+    if ((audioStatus === 'preparing' || pending) && audioLabel) st = `⏳ ${audioLabel}`;
+    else if ((audioStatus === 'preparing' || pending) && ytBlocked && !shift()) st = '⏳ Préparation du son…';
     else if (audioStatus === 'preparing' || pending)
       st = state.appliedSemitones
         ? '⏳ Préparation du son… (le son joue encore dans la tonalité précédente)'
@@ -2189,6 +2202,8 @@ requestAnimationFrame(tick);
 
 render();
 refreshCatalogue();
+onStoredChange(() => renderCatalogue());
+void loadStoredIds();
 $('app-version').textContent = __APP_VERSION__;
 const initial = new URLSearchParams(location.search).get('v');
 if (initial && parseYouTubeId(initial)) {

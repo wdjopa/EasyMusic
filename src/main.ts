@@ -2,7 +2,9 @@ import { analyzeChannels, analyzeInWorker, shiftInWorker } from './dsp/client';
 import { ANALYSIS_VERSION, type AnalysisResult } from './dsp/analyze';
 import type { ChordSegment } from './dsp/chords';
 import { rangeFromFrequencies } from './dsp/melody';
-import { chordDiagramSvg, voicingsFor } from './music/guitar';
+import { chordDiagramSvg, diagnoseVoicing, OPEN_PCS, STRING_NAMES, voicingsFor } from './music/guitar';
+import { displayOctave, foldToOctave, melodyNotes } from './music/melody';
+import { PitchLane } from './ui/pitchLane';
 import {
   bestOctave,
   type Chord,
@@ -11,6 +13,7 @@ import {
   keyName,
   midiName,
   noteName,
+  QUALITY_INTERVALS,
   planTransposition,
   preferFlats,
   type Range,
@@ -28,7 +31,7 @@ import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/ca
 import { startMic, type MicSession } from './ui/mic';
 import { Queue } from './ui/queue';
 import { startPractice, type PracticeSession } from './ui/practice';
-import { judgeChord, judgeVoice, SILENCE_RMS, type LiveFrame, type PracticeMode } from './dsp/live';
+import { heardChordTones, judgeChord, judgeVoice, SILENCE_RMS, type LiveFrame, type PracticeMode } from './dsp/live';
 import { createPlayer, parseYouTubeId, YT_EMBED_BLOCKED, YT_STATE, type YTPlayer } from './ui/youtube';
 import { encodeWav } from './ui/wav';
 
@@ -1161,6 +1164,7 @@ function render() {
           : '';
   }
 
+  rebuildLane();
   renderTimeline();
   renderLyrics();
   renderDiagrams();
@@ -1267,6 +1271,7 @@ function updateNow() {
   $('next-chord').textContent = nextSeg ? chordName(shapeChord(nextSeg.chord), f) : '—';
   const sc = shapeChord(cur);
   $('now-diagram').innerHTML = sc ? chordDiagramSvg(chordName(sc, f), voicingsFor(sc)[0]) : '';
+  diagKey = ''; // le diagnostic des cordes sera redessiné sur ce nouvel accord
 }
 
 // ---------------------------------------------------------------- paroles
@@ -1529,9 +1534,12 @@ document.querySelectorAll<HTMLButtonElement>('.pmode').forEach((b) => {
 
 function renderPracticeMode() {
   document.querySelectorAll<HTMLElement>('.pmode').forEach((b) => b.classList.toggle('active', b.dataset.pmode === practiceMode));
-  $('pl-chord-box').hidden = practiceMode === 'voice';
+  // le verdict de l'instrument s'affiche directement dans la carte de l'accord
+  $('pl-chord-box').hidden = true;
   $('pl-voice-box').hidden = practiceMode === 'instrument';
-  $('practice-live').classList.toggle('single', practiceMode !== 'both');
+  $('lane-wrap').hidden = !practice || practiceMode === 'instrument';
+  $('practice-live').classList.add('single');
+  if (!practice || practiceMode === 'voice') clearCardVerdict();
 }
 
 $('practice-btn').addEventListener('click', async () => {
@@ -1542,6 +1550,8 @@ $('practice-btn').addEventListener('click', async () => {
     btn.textContent = '▶ Démarrer';
     btn.classList.remove('recording');
     $('mic-level-row').hidden = true;
+    $('lane-wrap').hidden = true;
+    clearCardVerdict();
     return;
   }
   try {
@@ -1557,6 +1567,8 @@ $('practice-btn').addEventListener('click', async () => {
     btn.classList.add('recording');
     $('practice-live').hidden = false;
     $('mic-level-row').hidden = false;
+    lane.reset();
+    renderPracticeMode();
     micSilentSince = performance.now();
     lastPitchAt = 0;
     $('pl-score').textContent = 'Jouez en même temps que la musique…';
@@ -1579,6 +1591,91 @@ function expectedMelody(t: number): number | null {
   return null;
 }
 
+// ---- verdict de l'instrument dans la carte « Maintenant »
+const lane = new PitchLane($<HTMLCanvasElement>('pitch-lane'));
+let laneOctave = 0;
+const recentNotes: number[][] = [];
+let notesForIdx = -1;
+let diagKey = '';
+
+function showCardVerdict(v: string, played: string, text: string) {
+  const card = $('now-playing');
+  const mini = $('mini-now');
+  for (const el of [card, mini]) {
+    el.classList.remove('v-ok', 'v-close', 'v-wrong');
+    if (v !== 'silent') el.classList.add(`v-${v}`);
+  }
+  $('np-played').hidden = false;
+  $('np-played-chord').textContent = played;
+  $('np-verdict').hidden = false;
+  $('np-verdict').textContent = text;
+}
+
+function clearCardVerdict() {
+  for (const el of [$('now-playing'), $('mini-now')]) el.classList.remove('v-ok', 'v-close', 'v-wrong');
+  $('np-played').hidden = true;
+  $('np-verdict').hidden = true;
+  $('np-notes').hidden = true;
+  if (diagKey) {
+    diagKey = '';
+    state.currentIdx = -1; // redessine le doigté normal
+    updateNow();
+  }
+}
+
+/** Colore le doigté selon les notes entendues et explique quelle corde ne sonne pas. */
+function showStringDiagnosis(expected: Chord | null, v: string) {
+  const sc = expected ? transposeChord(expected, -state.capo) : null;
+  // notes de l'accord entendues dans la majorité des derniers blocs (la quinte doit ressortir nettement)
+  const { heard, uncertain } = expected ? heardChordTones(recentNotes, expected) : { heard: new Set<number>(), uncertain: new Set<number>() };
+  // au moins ~0,4 s de son sur cet accord avant de juger les cordes (doigté neutre en attendant)
+  if (recentNotes.filter((x) => x.length).length < 3) {
+    $('np-notes').hidden = true;
+    if (diagKey && sc) {
+      diagKey = '';
+      $('now-diagram').innerHTML = chordDiagramSvg(chordName(sc, flats()), voicingsFor(sc)[0]);
+    }
+    return;
+  }
+  if (!sc || !heard.size) {
+    $('np-notes').hidden = true;
+    return;
+  }
+  const fl = flats();
+  const voicing = voicingsFor(sc)[0];
+  const d = diagnoseVoicing(voicing, state.capo, heard, uncertain);
+  const played = voicing.filter((x) => x >= 0).length;
+  // accord presque juste (une ou deux cordes muettes) : on montre lesquelles ; sinon c'est tout l'accord à revoir
+  const mostlyRight = d.missing.length <= 2 && d.missing.length < played / 2;
+  const key = `${chordName(sc)}|${d.status.join(',')}|${v}|${mostlyRight}`;
+  if (key === diagKey) return;
+  diagKey = key;
+  $('now-diagram').innerHTML = chordDiagramSvg(chordName(sc, fl), voicing, mostlyRight ? d.status : undefined);
+  // notes de l'accord : entendues ou manquantes
+  const tones = mostlyRight ? QUALITY_INTERVALS[expected!.quality].map((iv) => (expected!.root + iv) % 12) : [];
+  const chips = tones
+    .map((pc) => {
+      if (!heard.has(pc) && uncertain.has(pc))
+        return `<span class="note-chip unsure" title="La quinte ne peut pas être vérifiée de façon fiable au micro">${noteName(pc, fl, true)}</span>`;
+      const ok = heard.has(pc);
+      return `<span class="note-chip ${ok ? 'ok' : 'missing'}">${ok ? '✓' : '!'} ${noteName(pc, fl, true)}${ok ? '' : ' manquant'}</span>`;
+    })
+    .join('');
+  let tip = '';
+  if (v !== 'ok' && !mostlyRight) tip = `Ce n’est pas le bon accord : placez les doigts comme sur le doigté de ${chordName(sc, fl)}.`;
+  else if (d.missing.length) {
+    const m = d.missing[0];
+    const string = `la corde de ${STRING_NAMES[m.string]} (${6 - m.string}e)`;
+    tip =
+      m.fret === 0
+        ? `${string[0].toUpperCase()}${string.slice(1)} ne sonne pas : elle doit sonner à vide. Un doigt la touche sans doute.`
+        : `${string[0].toUpperCase()}${string.slice(1)}, case ${m.fret}${state.capo ? ' (à partir du capo)' : ''} : appuyez plus fort, juste derrière la frette.`;
+  }
+  $('np-notes').innerHTML = `<div class="chips">${chips}</div>${tip ? `<p class="np-tip">${escapeHtml(tip)}</p>` : ''}`;
+  $('np-notes').hidden = false;
+}
+void OPEN_PCS;
+
 let micSilentSince = 0;
 let lastPitchAt = 0;
 /** Garde la dernière note affichée un court instant (respirations, consonnes) au lieu de clignoter. */
@@ -1597,7 +1694,15 @@ function onPracticeFrame(f: LiveFrame) {
         : '';
   if (!state.analysis) return;
   const t = mediaTime() - MIC_LATENCY;
-  const idx = segmentAt(t, segs);
+  const lateIdx = segmentAt(t, segs);
+  // au moment d'un changement, le son du micro peut encore correspondre à l'accord d'avant :
+  // on juge par rapport à l'accord affiché, sauf si l'accord d'avant colle mieux
+  let idx = state.currentIdx >= 0 ? state.currentIdx : lateIdx;
+  if (practiceMode !== 'voice' && lateIdx !== idx && lateIdx >= 0) {
+    const rank = { ok: 3, close: 2, wrong: 1, silent: 0 } as const;
+    const vs = (i: number) => rank[judgeChord(f.chord, soundingChord(segs[i].chord))];
+    if (vs(lateIdx) > vs(idx)) idx = lateIdx;
+  }
   const expected = idx >= 0 ? soundingChord(segs[idx].chord) : null;
   const fl = flats();
   const key = transposeKey(state.analysis.key, shift());
@@ -1613,13 +1718,10 @@ function onPracticeFrame(f: LiveFrame) {
     }
     const stable = [...counts.values()].sort((x, y) => y.n - x.n)[0].c;
     const v = judgeChord(stable, expected);
-    const box = $('pl-chord-box');
-    box.classList.remove('ok', 'close', 'wrong');
     // on affiche la forme à jouer (capo compris), comme dans la grille
-    const shape = (c: Chord | null) => (c ? chordName(transposeChord(c, -state.capo), fl) : '—');
-    $('pl-chord').textContent = stable ? shape(stable) : '—';
-    if (v !== 'silent') box.classList.add(v);
-    $('pl-chord-verdict').textContent =
+    const shape = (c: Chord | null) =>
+      c ? chordName(transposeChord(state.simple ? simplifyChord(c) : c, -state.capo), fl) : '—';
+    const verdict =
       v === 'silent'
         ? f.level < SILENCE_RMS
           ? 'Jouez…'
@@ -1627,8 +1729,19 @@ function onPracticeFrame(f: LiveFrame) {
         : v === 'ok'
           ? '✓ Juste'
           : v === 'close'
-            ? `≈ Presque : attendu ${shape(expected)}`
-            : `✗ Attendu : ${shape(expected)}`;
+            ? `≈ Presque : ${shape(stable)} au lieu de ${shape(expected)}`
+            : `✗ Faux : attendu ${shape(expected)}`;
+    showCardVerdict(v, stable ? shape(stable) : '—', verdict);
+    // nouvel accord attendu : l'historique du précédent ne compte plus
+    if (idx !== notesForIdx) {
+      recentNotes.length = 0;
+      notesForIdx = idx;
+    }
+    recentNotes.push(f.level >= SILENCE_RMS ? f.chroma : []);
+    if (recentNotes.length > 5) recentNotes.shift();
+    // doigté et notes : seulement pour l'accord affiché
+    if (idx === state.currentIdx) showStringDiagnosis(expected, v);
+    else $('np-notes').hidden = true;
     if (v !== 'silent' && idx >= 0) {
       const tl = tallies.get(idx) ?? { ok: 0, total: 0 };
       tl.total++;
@@ -1666,6 +1779,10 @@ function onPracticeFrame(f: LiveFrame) {
       $('pl-voice-verdict').textContent = `${fits} · ${tune}`;
       const good = v.inTune && (v.fit === 'melody' || v.fit === 'chord');
       const mid = v.fit !== 'outside';
+      // piste karaoké : la voix est ramenée dans l'octave de la note attendue
+      const ni = lane.noteAt(t);
+      const ref = ni >= 0 ? lane.notes[ni].midi : lane.points[lane.points.length - 1]?.midi ?? (state.voice.low + state.voice.high) / 2;
+      lane.addPoint({ t, midi: foldToOctave(p.midi, ref), good: ni >= 0 ? v.fit === 'melody' && v.inTune : good }, ni);
       lastVoiceClass = good ? 'ok' : mid ? 'close' : 'wrong';
       box.classList.add(lastVoiceClass);
       voiceScore.total++;
@@ -1694,6 +1811,21 @@ function applyResult(chip: HTMLElement, tl: { ok: number; total: number }) {
   chip.title = `Joué juste ${Math.round(r * 100)} % du temps`;
 }
 renderPracticeMode();
+
+/** Notes de la piste karaoké : mélodie dans la tonalité jouée, à l'octave de la voix. */
+function rebuildLane() {
+  const a = state.analysis;
+  if (!a) {
+    lane.notes = [];
+    lane.chords = [];
+    return;
+  }
+  const notes = melodyNotes(a, shift());
+  laneOctave = displayOctave(notes, state.voice.low, state.voice.high);
+  lane.notes = notes.map((n) => ({ ...n, midi: n.midi + laneOctave }));
+  const fl = flats();
+  lane.chords = segs.filter((g) => g.chord).map((g) => ({ start: g.start, name: chordName(shapeChord(g.chord), fl) }));
+}
 
 /** Durée d'un temps (s) d'après le tempo détecté, ou null s'il est inconnu. */
 function beatSeconds(): number | null {
@@ -1835,7 +1967,21 @@ function tickMini() {
   $('mini-now').classList.toggle('last', $('gauge').classList.contains('last'));
 }
 
+/** Boucle d'affichage : une erreur ponctuelle ne doit jamais la stopper (l'écran se figerait). */
 function tick() {
+  try {
+    tickOnce();
+  } catch (e) {
+    console.error(e);
+  }
+  requestAnimationFrame(tick);
+}
+
+function tickOnce() {
+  if (practice && practiceMode !== 'instrument' && !$('lane-wrap').hidden) {
+    lane.draw(mediaTime());
+    $('lane-lyric').textContent = lyricLine >= 0 ? sheet[lyricLine]?.text ?? '' : '';
+  }
   updateTransport();
   updateNow();
   updateGauge();
@@ -1845,7 +1991,6 @@ function tick() {
     const drift = yt!.getCurrentTime() - player.currentTime;
     if (Math.abs(drift) > 0.5) commandYt((p) => p.seekTo(player.currentTime, true));
   }
-  requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
 

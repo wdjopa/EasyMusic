@@ -14,6 +14,7 @@ export interface LiveFrame {
   level: number; // niveau sonore (RMS)
   chord: Chord | null; // accord reconnu (null : silence ou trop flou)
   notes: number[]; // classes de hauteur les plus présentes
+  chroma: number[]; // niveau de chaque note (0..1, la plus forte = 1)
   pitch: { freq: number; midi: number; cents: number } | null; // note chantée
 }
 
@@ -24,7 +25,7 @@ export function analyzeLiveFrame(buf: Float32Array, sr: number, mode: PracticeMo
   let rms = 0;
   for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
   rms = Math.sqrt(rms / buf.length);
-  const out: LiveFrame = { level: rms, chord: null, notes: [], pitch: null };
+  const out: LiveFrame = { level: rms, chord: null, notes: [], chroma: [], pitch: null };
   // seuil bas : le micro est lu sans contrôle automatique du gain, son niveau brut est souvent faible
   if (rms < SILENCE_RMS) return out;
 
@@ -49,7 +50,8 @@ export function analyzeLiveFrame(buf: Float32Array, sr: number, mode: PracticeMo
     if (cands.length && cands[0].score - (cands.find((c) => simplifyChord(c.chord).root !== simplifyChord(cands[0].chord).root)?.score ?? 0) > 0.6)
       out.chord = cands[0].chord;
     const max = Math.max(...chroma);
-    out.notes = [...chroma.keys()].filter((i) => chroma[i] > 0.45 * max);
+    out.notes = [...chroma.keys()].filter((i) => chroma[i] > 0.35 * max);
+    out.chroma = Array.from(chroma, (v) => (max ? v / max : 0));
   }
 
   if (mode === 'voice') {
@@ -145,4 +147,25 @@ export function judgeVoice(midi: number, expectedMelody: number | null, chord: C
   else if (chord && QUALITY_INTERVALS[chord.quality].some((iv) => mod12(chord.root + iv) === pc)) fit = 'chord';
   else if (scale.includes(pc)) fit = 'scale';
   return { inTune, fit, expected };
+}
+
+/**
+ * Notes d'un accord entendues, sur plusieurs blocs du micro (majorité des blocs).
+ * La quinte ne peut pas être vérifiée de façon fiable : la 3e harmonique de la fondamentale l'imite
+ * même quand la corde qui la joue est muette. Elle est donc « entendue » si elle ressort nettement,
+ * sinon « non vérifiable » (jamais déclarée manquante). Fondamentale et tierce comptent dès 30 %.
+ */
+export function heardChordTones(frames: number[][], chord: Chord): { heard: Set<number>; uncertain: Set<number> } {
+  const heard = new Set<number>();
+  const uncertain = new Set<number>();
+  const usable = frames.filter((f) => f.length === 12);
+  if (!usable.length) return { heard, uncertain };
+  const need = Math.max(1, Math.ceil(usable.length * 0.6));
+  for (const iv of QUALITY_INTERVALS[chord.quality]) {
+    const pc = mod12(chord.root + iv);
+    const fifth = iv === 7 || iv === 6;
+    if (usable.filter((f) => f[pc] >= (fifth ? 0.65 : 0.3)).length >= need) heard.add(pc);
+    else if (fifth) uncertain.add(pc);
+  }
+  return { heard, uncertain };
 }

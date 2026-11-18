@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeLiveFrame, judgeChord, judgeVoice } from '../src/dsp/live';
+import { analyzeLiveFrame, heardChordTones, judgeChord, judgeVoice } from '../src/dsp/live';
 import { chordName, midiToFreq, QUALITY_INTERVALS, type ChordQuality } from '../src/music/theory';
 
 const SR = 48000;
@@ -71,5 +71,35 @@ describe('écoute en direct', () => {
     expect(judgeVoice(64, null, G, key).fit).toBe('scale'); // Mi : dans la gamme
     expect(judgeVoice(63, null, G, key).fit).toBe('outside'); // Ré# : hors tonalité
     expect(judgeVoice(64.4, null, G, key).inTune).toBe(false);
+  });
+});
+
+describe('notes de l’accord entendues', () => {
+  const C = { root: 0, quality: 'maj' as const };
+  const frame = (levels: Record<number, number>) => Array.from({ length: 12 }, (_, i) => levels[i] ?? 0);
+  it('ne prend pas l’harmonique pour la quinte jouée', () => {
+    // Do avec la corde de Sol muette : le Sol n'existe que par les harmoniques du Do (≈ 0,5)
+    const muted = Array.from({ length: 5 }, () => frame({ 0: 0.62, 4: 1, 7: 0.53 }));
+    expect([...heardChordTones(muted, C).heard].sort()).toEqual([0, 4]);
+    expect([...heardChordTones(muted, C).uncertain]).toEqual([7]); // jamais déclarée manquante
+    const full = Array.from({ length: 5 }, () => frame({ 0: 0.7, 4: 1, 7: 0.85 }));
+    expect([...heardChordTones(full, C).heard].sort()).toEqual([0, 4, 7]);
+  });
+  it('signale une tierce manquante (corde muette)', () => {
+    const Em = { root: 4, quality: 'min' as const };
+    const f = Array.from({ length: 5 }, () => frame({ 4: 1, 7: 0.12, 11: 0.8 }));
+    const r = heardChordTones(f, Em);
+    expect(r.heard.has(7)).toBe(false);
+    expect(r.uncertain.has(7)).toBe(false); // la tierce est vérifiable : elle est bien manquante
+  });
+
+  it('compte une tierce jouée sur une seule corde', () => {
+    const Em = { root: 4, quality: 'min' as const };
+    const f = Array.from({ length: 5 }, () => frame({ 4: 1, 7: 0.38, 11: 0.73 }));
+    expect([...heardChordTones(f, Em).heard].sort((a, b) => a - b)).toEqual([4, 7, 11]);
+  });
+  it('ignore une note de passage isolée', () => {
+    const f = [frame({ 0: 1, 4: 0.9 }), frame({ 0: 1, 4: 0.9 }), frame({ 0: 1, 4: 0.9, 7: 0.9 }), frame({ 0: 1, 4: 0.9 }), frame({ 0: 1, 4: 0.9 })];
+    expect(heardChordTones(f, C).heard.has(7)).toBe(false);
   });
 });

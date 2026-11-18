@@ -455,3 +455,55 @@ body.has-mini .toast { bottom: calc(84px + env(safe-area-inset-bottom)); }
 .yt-blocked::before { content: ''; position: absolute; inset: 0; background: rgb(0 0 0 / 0.62); }
 .yt-blocked > * { position: relative; margin: 0; }
 .yt-blocked .small-btn { margin: 0; background: rgb(255 255 255 / 0.92); color: #111; }
+
+/* verdict de l'instrument dans la carte de l'accord */
+.now-playing { transition: background 0.15s, box-shadow 0.15s; border: 2px solid transparent; }
+.now-playing.v-ok { border-color: var(--voice); box-shadow: 0 0 0 4px color-mix(in srgb, var(--voice) 15%, transparent); }
+.now-playing.v-close { border-color: #d9a04a; box-shadow: 0 0 0 4px rgb(217 160 74 / 0.15); }
+.now-playing.v-wrong { border-color: #e0604c; box-shadow: 0 0 0 4px rgb(224 96 76 / 0.15); }
+.np-played { margin-left: auto; text-align: right; }
+.np-played > div { font-size: 1.6rem; font-weight: 800; }
+.v-ok .np-played > div { color: var(--voice); }
+.v-close .np-played > div { color: #c98a2a; }
+.v-wrong .np-played > div { color: #d0503c; }
+.np-verdict { flex-basis: 100%; padding: 8px 12px; border-radius: 10px; font-weight: 700; background: color-mix(in srgb, var(--card) 70%, transparent); }
+.v-ok .np-verdict { color: var(--voice); }
+.v-close .np-verdict { color: #b07820; }
+.v-wrong .np-verdict { color: #c0432f; }
+@media (prefers-color-scheme: dark) {
+  .v-close .np-verdict, .v-close .np-played > div { color: #f0c27a; }
+  .v-wrong .np-verdict, .v-wrong .np-played > div { color: #ff9a8a; }
+}
+.np-notes { flex-basis: 100%; display: grid; gap: 6px; }
+.np-notes .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.note-chip { padding: 4px 10px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; border: 1px solid; }
+.note-chip.ok { color: var(--voice); border-color: color-mix(in srgb, var(--voice) 50%, transparent); }
+.note-chip.missing { color: #c98a2a; border-color: #d9a04a; }
+@media (prefers-color-scheme: dark) { .note-chip.missing { color: #f0c27a; } }
+.np-tip { margin: 0; font-size: 0.9rem; }
+.mini-now.v-ok { border-color: var(--voice); }
+.mini-now.v-close { border-color: #d9a04a; }
+.mini-now.v-wrong { border-color: #e0604c; }
+
+/* doigté : cordes entendues ou muettes */
+.chord-diagram .cd-heard { fill: var(--voice); stroke: var(--voice); }
+.chord-diagram .cd-open.cd-heard { fill: none; stroke-width: 2.5; }
+.chord-diagram .cd-missing { fill: #f08048; stroke: #f08048; animation: cd-pulse 1.2s ease-in-out infinite; }
+.chord-diagram .cd-open.cd-missing { fill: none; stroke-width: 2.5; }
+.chord-diagram .cd-line-missing { stroke: #f08048; stroke-width: 2; }
+@keyframes cd-pulse { 50% { opacity: 0.35; } }
+
+/* piste karaoké */
+.lane-wrap { margin-top: 10px; display: grid; gap: 6px; }
+#pitch-lane { width: 100%; height: 220px; border-radius: 12px; border: 1px solid var(--line); display: block; }
+.lane-lyric { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 1.05rem; font-weight: 700; min-height: 1.4em; }
+.lane-legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; color: var(--muted); }
+.lane-legend i { display: inline-block; vertical-align: middle; margin-right: 6px; }
+.lg-bar { width: 22px; height: 8px; border-radius: 4px; background: var(--line); }
+.lg-dot { width: 8px; height: 8px; border-radius: 4px; }
+.lg-dot.good { background: var(--voice); }
+.lg-dot.warn { background: #d9a04a; }
+.lg-note { margin-left: auto; }
+@media (max-width: 640px) { #pitch-lane { height: 170px; } .lg-note { margin-left: 0; } }
+
+.note-chip.unsure { color: var(--muted); border-color: var(--line); }

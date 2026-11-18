@@ -118,7 +118,10 @@
           <p class="key-banner" id="key-banner"></p>
           <div><small>Maintenant</small><div class="big-chord" id="now-chord">—</div></div>
           <div><small>Ensuite</small><div class="next-chord" id="next-chord">—</div></div>
+          <div class="np-played" id="np-played" hidden><small>Vous jouez</small><div id="np-played-chord">—</div></div>
           <div id="now-diagram"></div>
+          <div class="np-verdict" id="np-verdict" hidden></div>
+          <div class="np-notes" id="np-notes" hidden></div>
           <div class="gauge-wrap" id="gauge-wrap" hidden>
             <div class="gauge" id="gauge" aria-hidden="true"></div>
             <div class="gauge-label" id="gauge-label"></div>
@@ -161,6 +164,16 @@
             <span class="small">🎙️ Micro</span>
             <div class="level wide"><div class="level-fill" id="mic-level"></div></div>
             <span class="small" id="mic-level-hint"></span>
+          </div>
+          <div class="lane-wrap" id="lane-wrap" hidden>
+            <canvas id="pitch-lane" aria-label="Notes de la mélodie et votre voix"></canvas>
+            <div class="lane-lyric" id="lane-lyric"></div>
+            <div class="lane-legend small">
+              <span><i class="lg-bar"></i>note à chanter</span>
+              <span><i class="lg-dot good"></i>votre voix, juste</span>
+              <span><i class="lg-dot warn"></i>un peu haut ou bas</span>
+              <span class="lg-note">mélodie estimée · l’octave ne compte pas</span>
+            </div>
           </div>
           <div class="practice-live" id="practice-live" hidden>
             <div class="pl-box" id="pl-chord-box">

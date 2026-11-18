@@ -75,8 +75,38 @@ export function voicingsFor(c: Chord): Voicing[] {
   return out.slice(0, 2);
 }
 
-/** Dessine un diagramme d'accord en SVG. */
-export function chordDiagramSvg(name: string, v: Voicing): string {
+/** Classe de hauteur des cordes à vide (Mi grave → Mi aigu). */
+export const OPEN_PCS = [4, 9, 2, 7, 11, 4];
+export const STRING_NAMES = ['Mi grave', 'La', 'Ré', 'Sol', 'Si', 'Mi aigu'];
+
+export type StringStatus = 'heard' | 'missing' | null;
+
+/**
+ * Pour un doigté joué avec un capo, indique pour chaque corde si sa note a été entendue.
+ * (Une même note peut venir de deux cordes : elle est alors comptée pour les deux.)
+ */
+export function diagnoseVoicing(
+  v: Voicing,
+  capo: number,
+  heard: Set<number>,
+  /** Notes non vérifiables (ni entendues ni manquantes). */
+  uncertain: Set<number> = new Set(),
+): { status: StringStatus[]; missing: { string: number; fret: number; pc: number }[] } {
+  const status: StringStatus[] = [];
+  const missing: { string: number; fret: number; pc: number }[] = [];
+  v.forEach((fret, s) => {
+    if (fret < 0) return status.push(null);
+    const pc = (OPEN_PCS[s] + fret + capo) % 12;
+    if (uncertain.has(pc) && !heard.has(pc)) return status.push(null);
+    const ok = heard.has(pc);
+    status.push(ok ? 'heard' : 'missing');
+    if (!ok) missing.push({ string: s, fret, pc });
+  });
+  return { status, missing };
+}
+
+/** Dessine un diagramme d'accord en SVG ; `status` colore les cordes entendues / muettes. */
+export function chordDiagramSvg(name: string, v: Voicing, status?: StringStatus[]): string {
   const W = 110;
   const H = 148;
   const left = 22;
@@ -122,12 +152,16 @@ export function chordDiagramSvg(name: string, v: Voicing): string {
   }
   v.forEach((f, s) => {
     const x = left + s * sp;
+    const st = status?.[s];
+    const cls = st === 'heard' ? ' cd-heard' : st === 'missing' ? ' cd-missing' : '';
     if (f < 0) parts.push(`<text x="${x}" y="${top - 9}" text-anchor="middle" class="cd-mark">×</text>`);
-    else if (f === 0) parts.push(`<circle cx="${x}" cy="${top - 13}" r="3.5" class="cd-open"/>`);
-    else if (f !== barreFret) {
+    else if (f === 0) parts.push(`<circle cx="${x}" cy="${top - 13}" r="${st ? 4.5 : 3.5}" class="cd-open${cls}"/>`);
+    else if (f !== barreFret || st) {
+      // sur un barré, seule une corde évaluée reçoit son propre point coloré
       const y = top + (f - base + 0.5) * fh;
-      parts.push(`<circle cx="${x}" cy="${y}" r="5.5" class="cd-dot"/>`);
+      parts.push(`<circle cx="${x}" cy="${y}" r="5.5" class="cd-dot${cls}"/>`);
     }
+    if (st === 'missing') parts.push(`<line x1="${x}" y1="${top}" x2="${x}" y2="${top + fh * nFrets}" class="cd-line-missing"/>`);
   });
   return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="chord-diagram" role="img" aria-label="Accord ${name}">${parts.join('')}</svg>`;
 }

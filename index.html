@@ -90,8 +90,22 @@
             <button class="btn ghost" id="tp-back" title="Reculer de 5 s (←)" aria-label="Reculer de 5 secondes">⏪</button>
             <button class="btn primary tp-play" id="tp-play" title="Lecture / pause (espace)" aria-label="Lecture">▶</button>
             <button class="btn ghost" id="tp-fwd" title="Avancer de 5 s (→)" aria-label="Avancer de 5 secondes">⏩</button>
-            <input type="range" id="tp-seek" min="0" max="100" step="0.1" value="0" aria-label="Position dans le morceau" />
+            <div class="seek-wrap">
+              <div class="loop-region" id="loop-region" hidden></div>
+              <input type="range" id="tp-seek" min="0" max="100" step="0.1" value="0" aria-label="Position dans le morceau" />
+            </div>
             <span class="tp-time" id="tp-time">0:00 / 0:00</span>
+          </div>
+          <div class="transport-2" id="transport-2" hidden>
+            <div class="speed" role="group" aria-label="Vitesse de lecture">
+              <span class="small">Vitesse</span>
+              <button class="sp" data-rate="0.5">50 %</button>
+              <button class="sp" data-rate="0.75">75 %</button>
+              <button class="sp active" data-rate="1">100 %</button>
+            </div>
+            <button class="btn small-btn" id="tp-loop" title="Boucle : 1er clic = début (A), 2e clic = fin (B), 3e clic = sans boucle">⟳ Boucle A–B</button>
+            <span class="small loop-info" id="loop-info"></span>
+            <button class="btn small-btn ghost" id="open-report" hidden>📊 Bilan</button>
           </div>
         </div>
         <div class="song-head">
@@ -128,8 +142,12 @@
           </div>
         </div>
 
-        <!-- réglages rapides -->
-        <div class="controls card-lite">
+      </aside>
+
+      <!-- colonne droite : la partition -->
+      <section class="sheet card" id="step-chords">
+        <!-- réglages : tonalité, transposition, capo -->
+        <div class="controls">
           <div class="mode-switch" role="group" aria-label="Tonalité jouée">
             <button class="mode" data-mode="original"><span>🎵 Original</span><small class="mode-key-orig"></small></button>
             <button class="mode" data-mode="voice"><span>🎤 Ma tonalité</span><small class="mode-key-voice"></small></button>
@@ -148,7 +166,40 @@
           <p class="small capo-hint" id="capo-hint"></p>
         </div>
 
-        <!-- micro -->
+        <div class="sheet-head">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-view="lyrics" role="tab">🎤 Paroles</button>
+            <button class="tab" data-view="grid" role="tab">🎼 Grille</button>
+            <button class="tab" data-view="diagrams" role="tab">✋ Doigtés</button>
+            <button class="tab" data-view="practice" role="tab">🎙️ Micro</button>
+          </div>
+          <div class="sheet-tools">
+            <label title="Remplace 7, maj7, sus… par des accords majeurs/mineurs simples"><input type="checkbox" id="simple" checked /> Simplifiés</label>
+            <label><input type="checkbox" id="flats" /> Bémols</label>
+            <button class="btn small-btn" id="copy" title="Copier la grille d'accords">📋 Copier</button>
+            <a class="btn small-btn" id="download" hidden>⬇️ Audio</a>
+          </div>
+        </div>
+
+        <div class="view" data-view="lyrics">
+          <div class="lyrics-head">
+            <span class="small" id="lyrics-source"></span>
+            <span class="lyrics-offset" id="lyrics-offset-box" hidden>
+              <span class="small">Décalage</span>
+              <button class="btn small-btn" id="lyr-minus" title="Paroles plus tôt">−0,5 s</button>
+              <span class="small" id="lyr-offset">0 s</span>
+              <button class="btn small-btn" id="lyr-plus" title="Paroles plus tard">+0,5 s</button>
+            </span>
+          </div>
+          <div class="lyrics" id="lyrics"></div>
+        </div>
+        <div class="view" data-view="grid" hidden>
+          <div class="timeline" id="timeline"></div>
+        </div>
+        <div class="view" data-view="diagrams" hidden>
+          <div class="diagrams" id="diagrams"></div>
+        </div>
+        <div class="view" data-view="practice" hidden>
         <section class="practice" id="practice">
           <div class="practice-head">
             <strong>🎙️ Vérifier mon jeu</strong>
@@ -190,41 +241,6 @@
             <div class="pl-score" id="pl-score"></div>
           </div>
         </section>
-      </aside>
-
-      <!-- colonne droite : la partition -->
-      <section class="sheet card" id="step-chords">
-        <div class="sheet-head">
-          <div class="tabs" role="tablist">
-            <button class="tab active" data-view="lyrics" role="tab">🎤 Paroles</button>
-            <button class="tab" data-view="grid" role="tab">🎼 Grille</button>
-            <button class="tab" data-view="diagrams" role="tab">✋ Doigtés</button>
-          </div>
-          <div class="sheet-tools">
-            <label title="Remplace 7, maj7, sus… par des accords majeurs/mineurs simples"><input type="checkbox" id="simple" checked /> Simplifiés</label>
-            <label><input type="checkbox" id="flats" /> Bémols</label>
-            <button class="btn small-btn" id="copy" title="Copier la grille d'accords">📋 Copier</button>
-            <a class="btn small-btn" id="download" hidden>⬇️ Audio</a>
-          </div>
-        </div>
-
-        <div class="view" data-view="lyrics">
-          <div class="lyrics-head">
-            <span class="small" id="lyrics-source"></span>
-            <span class="lyrics-offset" id="lyrics-offset-box" hidden>
-              <span class="small">Décalage</span>
-              <button class="btn small-btn" id="lyr-minus" title="Paroles plus tôt">−0,5 s</button>
-              <span class="small" id="lyr-offset">0 s</span>
-              <button class="btn small-btn" id="lyr-plus" title="Paroles plus tard">+0,5 s</button>
-            </span>
-          </div>
-          <div class="lyrics" id="lyrics"></div>
-        </div>
-        <div class="view" data-view="grid" hidden>
-          <div class="timeline" id="timeline"></div>
-        </div>
-        <div class="view" data-view="diagrams" hidden>
-          <div class="diagrams" id="diagrams"></div>
         </div>
       </section>
     </main>
@@ -237,6 +253,15 @@
     </div>
 
     <div class="toast" id="toast" role="status" hidden></div>
+
+    <!-- bilan de séance -->
+    <dialog class="voice-dialog report-dialog" id="report-dialog">
+      <form method="dialog" class="dialog-head">
+        <h2>📊 Bilan de la séance</h2>
+        <button class="btn ghost" aria-label="Fermer">✕</button>
+      </form>
+      <div id="report"></div>
+    </dialog>
 
     <!-- panneau « Ma voix » -->
     <dialog class="voice-dialog" id="voice-dialog">
@@ -277,7 +302,7 @@
     <footer>
       <p>
         La détection automatique d'accords est une estimation. Utilisez uniquement des contenus que vous avez le droit
-        d'utiliser.
+        d'utiliser. <span class="version">Version <span id="app-version"></span></span>
       </p>
     </footer>
     <script type="module" src="/src/main.ts"></script>

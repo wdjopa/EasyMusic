@@ -16,6 +16,8 @@ export interface YTPlayer {
   /** Prépare une vidéo sans la lancer (miniature + grand bouton ▶). */
   cueVideoById(id: string): void;
   getVideoData(): { title?: string; author?: string };
+  /** Vitesse de lecture (YouTube accepte 0,25 à 2). */
+  setPlaybackRate(rate: number): void;
   destroy(): void;
 }
 

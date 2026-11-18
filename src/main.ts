@@ -30,6 +30,7 @@ import { getSong, listSongs, removeSong, saveLyrics, savePrefs, saveSong, type L
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
 import { startMic, type MicSession } from './ui/mic';
 import { Queue } from './ui/queue';
+import { headline, saveSession, sessionHistory, SessionRecorder, type Passage, type PassageReport } from './ui/session';
 import { startPractice, type PracticeSession } from './ui/practice';
 import { heardChordTones, judgeChord, judgeVoice, SILENCE_RMS, type LiveFrame, type PracticeMode } from './dsp/live';
 import { createPlayer, parseYouTubeId, YT_EMBED_BLOCKED, YT_STATE, type YTPlayer } from './ui/youtube';
@@ -494,6 +495,8 @@ async function loadYouTube(url: string) {
   audioToken++;
   audioStatus = '';
   ytBlocked = false;
+  clearLoop();
+  $('open-report').hidden = true;
   $('yt-blocked').hidden = true;
   state.lyrics = null;
   lyricsToken++;
@@ -1552,6 +1555,7 @@ $('practice-btn').addEventListener('click', async () => {
     $('mic-level-row').hidden = true;
     $('lane-wrap').hidden = true;
     clearCardVerdict();
+    showReport();
     return;
   }
   try {
@@ -1568,6 +1572,8 @@ $('practice-btn').addEventListener('click', async () => {
     $('practice-live').hidden = false;
     $('mic-level-row').hidden = false;
     lane.reset();
+    session = new SessionRecorder();
+    passages = buildPassages();
     renderPracticeMode();
     micSilentSince = performance.now();
     lastPitchAt = 0;
@@ -1662,6 +1668,7 @@ function showStringDiagnosis(expected: Chord | null, v: string) {
     })
     .join('');
   let tip = '';
+  if (mostlyRight && d.missing.length) lastMutedString = `la corde de ${STRING_NAMES[d.missing[0].string]} sur ${chordName(sc, fl)}`;
   if (v !== 'ok' && !mostlyRight) tip = `Ce n’est pas le bon accord : placez les doigts comme sur le doigté de ${chordName(sc, fl)}.`;
   else if (d.missing.length) {
     const m = d.missing[0];
@@ -1740,8 +1747,15 @@ function onPracticeFrame(f: LiveFrame) {
     recentNotes.push(f.level >= SILENCE_RMS ? f.chroma : []);
     if (recentNotes.length > 5) recentNotes.shift();
     // doigté et notes : seulement pour l'accord affiché
+    lastMutedString = '';
     if (idx === state.currentIdx) showStringDiagnosis(expected, v);
     else $('np-notes').hidden = true;
+    if (v !== 'silent' && idx >= 0)
+      session?.recordChord(passageAt(t), v, {
+        expected: shape(expected),
+        late: v !== 'ok' && t - segs[idx].start < 0.6,
+        mutedString: lastMutedString || undefined,
+      });
     if (v !== 'silent' && idx >= 0) {
       const tl = tallies.get(idx) ?? { ok: 0, total: 0 };
       tl.total++;
@@ -1773,8 +1787,8 @@ function onPracticeFrame(f: LiveFrame) {
       const fits = {
         melody: '✓ la note de la mélodie',
         chord: '✓ dans l’accord',
-        scale: v.expected !== null ? `≈ dans la gamme (mélodie : ${noteName(v.expected, fl)})` : '≈ dans la gamme',
-        outside: v.expected !== null ? `✗ hors de la tonalité (mélodie : ${noteName(v.expected, fl)})` : '✗ hors de la tonalité',
+        scale: v.expected !== null ? `≈ dans la gamme (mélodie : ${noteName(v.expected, fl, true)})` : '≈ dans la gamme',
+        outside: v.expected !== null ? `✗ hors de la tonalité (mélodie : ${noteName(v.expected, fl, true)})` : '✗ hors de la tonalité',
       }[v.fit];
       $('pl-voice-verdict').textContent = `${fits} · ${tune}`;
       const good = v.inTune && (v.fit === 'melody' || v.fit === 'chord');
@@ -1782,7 +1796,9 @@ function onPracticeFrame(f: LiveFrame) {
       // piste karaoké : la voix est ramenée dans l'octave de la note attendue
       const ni = lane.noteAt(t);
       const ref = ni >= 0 ? lane.notes[ni].midi : lane.points[lane.points.length - 1]?.midi ?? (state.voice.low + state.voice.high) / 2;
-      lane.addPoint({ t, midi: foldToOctave(p.midi, ref), good: ni >= 0 ? v.fit === 'melody' && v.inTune : good }, ni);
+      const laneGood = ni >= 0 ? v.fit === 'melody' && v.inTune : good;
+      lane.addPoint({ t, midi: foldToOctave(p.midi, ref), good: laneGood }, ni);
+      session?.recordVoice(passageAt(t), laneGood, p.cents, v.inTune);
       lastVoiceClass = good ? 'ok' : mid ? 'close' : 'wrong';
       box.classList.add(lastVoiceClass);
       voiceScore.total++;
@@ -1932,6 +1948,7 @@ document.addEventListener('keydown', (e) => {
 function updateTransport() {
   const ready = !$('workspace').hidden && (state.source === 'youtube' ? !!yt : !!player.src);
   $('transport').hidden = !ready;
+  $('transport-2').hidden = !ready;
   if (!ready) return;
   const playing = isMediaPlaying();
   const btn = $('tp-play');
@@ -1944,6 +1961,181 @@ function updateTransport() {
     $('tp-time').textContent = `${formatTime(mediaTime())} / ${formatTime(d)}`;
   }
 }
+
+// ---------------------------------------------------------------- vitesse et boucle A–B
+let rate = 1;
+function setRate(r: number) {
+  rate = r;
+  applyRate();
+  document.querySelectorAll<HTMLElement>('.sp').forEach((b) => b.classList.toggle('active', Number(b.dataset.rate) === r));
+}
+/** Ralentit sans changer la hauteur des notes (son du navigateur) ; YouTube a son propre réglage. */
+function applyRate() {
+  player.defaultPlaybackRate = rate;
+  player.playbackRate = rate;
+  player.preservesPitch = true;
+  yt?.setPlaybackRate?.(rate);
+}
+document.querySelectorAll<HTMLButtonElement>('.sp').forEach((b) => (b.onclick = () => setRate(Number(b.dataset.rate))));
+// un nouveau son chargé repart à la vitesse normale : on réapplique la vitesse choisie
+player.addEventListener('loadedmetadata', applyRate);
+
+let loop: { a: number; b: number; count: number } | null = null;
+let loopA: number | null = null;
+function setLoop(a: number, b: number) {
+  loop = { a, b, count: 0 };
+  loopA = null;
+  renderLoop();
+}
+function clearLoop() {
+  loop = null;
+  loopA = null;
+  renderLoop();
+}
+$('tp-loop').onclick = () => {
+  const t = mediaTime();
+  if (loop) return clearLoop();
+  if (loopA === null) {
+    loopA = t;
+    return renderLoop();
+  }
+  if (t > loopA + 0.5) {
+    setLoop(loopA, t);
+    mediaSeek(loopA);
+  } else clearLoop();
+};
+function renderLoop() {
+  const btn = $('tp-loop');
+  btn.classList.toggle('on', !!loop || loopA !== null);
+  btn.textContent = loop ? '⟳ Enlever la boucle' : loopA !== null ? '⟳ Fin de la boucle (B)' : '⟳ Boucle A–B';
+  $('loop-info').textContent = loop
+    ? `Boucle ${formatTime(loop.a)} → ${formatTime(loop.b)}${loop.count ? ` · ×${loop.count + 1}` : ''}`
+    : loopA !== null
+      ? `Début (A) à ${formatTime(loopA)} : cliquez à nouveau pour la fin (B)`
+      : '';
+  const d = mediaDuration();
+  const region = $('loop-region');
+  region.hidden = !loop && loopA === null;
+  if (d && !region.hidden) {
+    const a = loop?.a ?? loopA!;
+    const b = loop?.b ?? Math.max(a, mediaTime());
+    region.style.left = `${(a / d) * 100}%`;
+    region.style.width = `${Math.max(0.5, ((b - a) / d) * 100)}%`;
+  }
+}
+/** Revient au début de la boucle quand la fin est atteinte. */
+function enforceLoop() {
+  if (loopA !== null) renderLoop();
+  if (!loop || !isMediaPlaying()) return;
+  const t = mediaTime();
+  if (t >= loop.b - 0.03 || t < loop.a - 1) {
+    loop.count++;
+    if (usingYt()) yt!.seekTo(loop.a, true);
+    else player.currentTime = loop.a;
+    renderLoop();
+  }
+}
+
+// ---------------------------------------------------------------- bilan de séance
+let session: SessionRecorder | null = null;
+let passages: Passage[] = [];
+let lastReport: { reports: PassageReport[]; html: string } | null = null;
+let lastMutedString = '';
+
+/** Passages du bilan : les lignes de paroles, sinon des groupes de 4 accords. */
+function buildPassages(): Passage[] {
+  const end = state.analysis?.duration ?? 0;
+  if (sheet.length)
+    return sheet.map((r, i) => ({
+      start: Math.max(0, r.start),
+      end: sheet[i + 1]?.start ?? end,
+      label: r.instru ? '♪' : r.text,
+      chords: r.chords.map((c) => c.name).join(' '),
+    }));
+  const fl = flats();
+  const list = segs.filter((g) => g.chord);
+  const out: Passage[] = [];
+  for (let i = 0; i < list.length; i += 4) {
+    const g = list.slice(i, i + 4);
+    const stop = list[i + 4]?.start ?? end;
+    out.push({ start: g[0].start, end: stop, label: `${formatTime(g[0].start)} – ${formatTime(stop)}`, chords: g.map((x) => chordName(shapeChord(x.chord), fl)).join(' ') });
+  }
+  return out;
+}
+function passageAt(t: number): number {
+  for (let i = passages.length - 1; i >= 0; i--) if (passages[i].start <= t) return t < passages[i].end ? i : -1;
+  return -1;
+}
+const songKey = () => currentSongId ?? (state.file ? `file:${state.file.name}` : '');
+
+function showReport() {
+  if (!session || session.empty) return;
+  const reports = session.report(passages);
+  const totals = session.totals();
+  const key = songKey();
+  const history = key ? sessionHistory(key) : [];
+  const previous = history[history.length - 1];
+  const minutes = Math.max(1, Math.round((Date.now() - session.startedAt) / 60000));
+  if (key && (totals.chords !== null || totals.voice !== null)) saveSession(key, { date: new Date().toISOString(), ...totals, minutes });
+  const all = key ? sessionHistory(key) : [];
+  const pct = (x: number | null) => (x === null ? '—' : `${Math.round(x * 100)} %`);
+  const col = (x: number | null) => (x === null ? 'var(--muted)' : x >= 0.8 ? 'var(--voice)' : x >= 0.6 ? '#d9a04a' : '#e0604c');
+  const delta = (now: number | null, before: number | null | undefined) =>
+    now === null || before == null ? '' : now - before >= 1 ? `<span class="up">▲ +${now - before} points</span>` : now - before <= -1 ? `<span class="down">▼ ${now - before} points</span>` : '<span>= comme la dernière fois</span>';
+  const kpi = (label: string, v: number | null, before: number | null | undefined) =>
+    `<div class="kpi"><span class="kpi-label">${label}</span><strong>${v === null ? '—' : `${v} %`}</strong>${delta(v, before)}</div>`;
+  const series = all.map((x) => x.chords ?? x.voice ?? 0).slice(-6);
+  const max = Math.max(100, ...series);
+  const chart = series.length > 1
+    ? `<div class="kpi"><span class="kpi-label">Progression · ${series.length} séances</span><div class="mini-chart">${series
+        .map((v, i) => `<div><small>${v}</small><span style="height:${Math.round((v / max) * 48)}px" class="${i === series.length - 1 ? 'cur' : ''}"></span></div>`)
+        .join('')}</div></div>`
+    : `<div class="kpi"><span class="kpi-label">Durée</span><strong>${minutes} min</strong><span>première séance sur ce morceau</span></div>`;
+  const rows = reports
+    .map(
+      (r) => `<li class="rp ${r.weak ? 'weak' : ''}">
+        <span class="rp-bar" style="background:${col(Math.min(r.chordScore ?? 1, r.voiceScore ?? 1))}"></span>
+        <span class="rp-time">${formatTime(r.start)}</span>
+        <div class="rp-text"><span class="rp-chords">${escapeHtml(r.chords)}</span><span>${escapeHtml(r.label)}</span></div>
+        <span class="rp-score">Accords <strong style="color:${col(r.chordScore)}">${pct(r.chordScore)}</strong></span>
+        <span class="rp-score">Voix <strong style="color:${col(r.voiceScore)}">${pct(r.voiceScore)}</strong></span>
+        <span class="rp-tip">${escapeHtml(r.tip)}</span>
+        <button class="btn small-btn ${r.weak ? 'primary' : ''}" data-loop="${r.index}">⟳ En boucle</button>
+      </li>`,
+    )
+    .join('');
+  const weak = reports.find((r) => r.weak);
+  const html = `<p class="rp-headline">${escapeHtml(headline(reports, totals, previous))}</p>
+    <div class="kpis">${kpi('Accords justes', totals.chords, previous?.chords)}${kpi('Voix juste', totals.voice, previous?.voice)}${chart}</div>
+    ${weak ? `<button class="btn primary" id="rp-practice">⟳ Travailler le premier passage difficile à 75 %</button>` : ''}
+    <ul class="rp-list">${rows || '<li class="hint">Aucun passage assez long pour être évalué.</li>'}</ul>`;
+  lastReport = { reports, html };
+  $('open-report').hidden = false;
+  openReport();
+}
+
+function openReport() {
+  if (!lastReport) return;
+  $('report').innerHTML = lastReport.html;
+  const loopOn = (i: number, slow: boolean) => {
+    const p = passages[i];
+    if (!p) return;
+    $<HTMLDialogElement>('report-dialog').close();
+    setLoop(p.start, p.end);
+    if (slow) setRate(0.75);
+    mediaSeek(p.start);
+    toast(`⟳ Boucle ${formatTime(p.start)} → ${formatTime(p.end)}${slow ? ' à 75 %' : ''}`, slow ? undefined : { label: 'Ralentir à 75 %', run: () => setRate(0.75) });
+  };
+  $('report').querySelectorAll<HTMLButtonElement>('[data-loop]').forEach((b) => (b.onclick = () => loopOn(Number(b.dataset.loop), false)));
+  const first = lastReport.reports.find((r) => r.weak);
+  const btn = document.querySelector<HTMLButtonElement>('#rp-practice');
+  if (btn && first) btn.onclick = () => loopOn(first.index, true);
+  $<HTMLDialogElement>('report-dialog').showModal();
+}
+$('open-report').onclick = openReport;
+$<HTMLDialogElement>('report-dialog').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) $<HTMLDialogElement>('report-dialog').close();
+});
 
 // ---------------------------------------------------------------- barre fixe sur téléphone
 let nowVisible = true;
@@ -1978,6 +2170,7 @@ function tick() {
 }
 
 function tickOnce() {
+  enforceLoop();
   if (practice && practiceMode !== 'instrument' && !$('lane-wrap').hidden) {
     lane.draw(mediaTime());
     $('lane-lyric').textContent = lyricLine >= 0 ? sheet[lyricLine]?.text ?? '' : '';
@@ -1996,6 +2189,7 @@ requestAnimationFrame(tick);
 
 render();
 refreshCatalogue();
+$('app-version').textContent = __APP_VERSION__;
 const initial = new URLSearchParams(location.search).get('v');
 if (initial && parseYouTubeId(initial)) {
   $<HTMLInputElement>('yt-url').value = `https://www.youtube.com/watch?v=${initial}`;

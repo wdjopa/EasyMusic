@@ -9,6 +9,7 @@ export interface Song {
   author: string;
   duration: number;
   thumbnail: string;
+  embeddable?: boolean;
   analysis: AnalysisResult;
 }
 interface Job {

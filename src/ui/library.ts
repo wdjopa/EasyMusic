@@ -23,6 +23,8 @@ export interface LibrarySong {
   openedAt: string;
   analysis: AnalysisResult;
   prefs?: SongPrefs;
+  /** Faux si la vidéo ne peut pas être lue hors de YouTube (connu à l'analyse ou après une erreur). */
+  embeddable?: boolean;
   /** Paroles (null = cherchées mais introuvables). */
   lyrics?: Lyrics | null;
 }
@@ -88,5 +90,14 @@ export function saveLyrics(id: string, lyrics: Lyrics | null): void {
   const s = all.find((x) => x.id === id);
   if (!s) return;
   s.lyrics = lyrics;
+  write(all);
+}
+
+/** Retient qu'une vidéo ne peut pas être lue hors de YouTube : la prochaine fois, on joue le son directement. */
+export function markNotEmbeddable(id: string): void {
+  const all = read();
+  const s = all.find((x) => x.id === id);
+  if (!s || s.embeddable === false) return;
+  s.embeddable = false;
   write(all);
 }

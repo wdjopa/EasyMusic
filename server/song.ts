@@ -7,5 +7,7 @@ export interface Song {
   author: string;
   duration: number;
   thumbnail: string;
+  /** Faux si le propriétaire interdit la lecture hors de YouTube : l'app joue alors le son directement. */
+  embeddable?: boolean;
   analysis: AnalysisResult;
 }

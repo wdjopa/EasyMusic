@@ -26,7 +26,7 @@ import {
 } from './music/theory';
 import { analyzeVideo, fetchFeatures, fetchLyrics, transcribeLyrics } from './ui/api';
 import type { Lyrics } from './shared/lyrics';
-import { getSong, listSongs, removeSong, saveLyrics, savePrefs, saveSong, type LibrarySong } from './ui/library';
+import { getSong, listSongs, markNotEmbeddable, removeSong, saveLyrics, savePrefs, saveSong, type LibrarySong } from './ui/library';
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
 import { startMic, type MicSession } from './ui/mic';
 import { Queue } from './ui/queue';
@@ -179,6 +179,7 @@ async function loadFile(file: File) {
     state.shiftedUrl = null;
     state.originalUrl = URL.createObjectURL(file);
     player.src = state.originalUrl;
+    audioFor = `file:${file.name}`;
     $('player-wrap').hidden = false;
     $('song-title').textContent = file.name.replace(/\.[^.]+$/, '');
     $('song-meta').textContent = `${formatTime(buffer.duration)} · analyse en cours…`;
@@ -497,6 +498,7 @@ async function loadYouTube(url: string) {
   stopListening(false);
   audioToken++;
   audioStatus = '';
+  audioFor = null;
   ytBlocked = false;
   clearLoop();
   $('open-report').hidden = true;
@@ -543,6 +545,7 @@ async function loadYouTube(url: string) {
   currentSongId = id;
   // déjà dans le catalogue du navigateur : rien à demander au serveur
   const saved = getSong(id);
+  if (saved?.embeddable === false) onEmbedBlocked(true);
   if (saved && saved.analysis.version === ANALYSIS_VERSION) {
     startLoading(['lyrics']);
     saveSong(saved); // met à jour la date d'ouverture
@@ -557,6 +560,7 @@ async function loadYouTube(url: string) {
     if (token.cancelled) return;
     setProgress(null);
     saveSong(song);
+    if (song.embeddable === false) onEmbedBlocked(true);
     if (!storedIds.has(id)) void songAudio(id).catch(() => {}); // téléchargé une fois, gardé dans le navigateur
     // une ancienne analyse refaite garde les réglages de l'utilisateur
     openSong({ ...song, prefs: saved?.prefs, lyrics: saved?.lyrics });
@@ -626,6 +630,7 @@ window.addEventListener('pagehide', () => pendingPrefs?.());
 
 function onYtState(s: number) {
   ytState = s;
+  if (s === -1 || s === YT_STATE.BUFFERING || s === YT_STATE.PLAYING) playIntentAt = performance.now();
   const title = yt?.getVideoData()?.title;
   if (title && state.source === 'youtube' && $('song-title').textContent === 'Vidéo YouTube') $('song-title').textContent = title;
   // en mode transposé, toucher la vidéo pilote le son transposé
@@ -760,9 +765,21 @@ function showAnalysis(a: AnalysisResult) {
 let ytBlocked = false;
 const usingYt = () => state.source === 'youtube' && !!yt && !ytBlocked && state.appliedSemitones === 0;
 
-function onEmbedBlocked() {
+/** Moment où l'utilisateur a demandé la lecture (pour enchaîner sur le son si la vidéo est refusée). */
+let playIntentAt = 0;
+let autoStartAudio = false;
+
+/**
+ * Vidéo interdite hors de YouTube : on joue le son à la place. `known` = on le savait d'avance
+ * (analyse ou erreur précédente) : pas besoin d'essayer le lecteur YouTube.
+ */
+function onEmbedBlocked(known = false) {
   if (ytBlocked || state.source !== 'youtube') return;
   ytBlocked = true;
+  // la lecture venait d'être demandée : le son démarre tout seul, sans second clic
+  autoStartAudio = !known && performance.now() - playIntentAt < 10_000;
+  if (currentSongId) markNotEmbeddable(currentSongId);
+  yt?.pauseVideo();
   const id = currentSongId;
   const blocked = $('yt-blocked');
   blocked.hidden = false;
@@ -969,6 +986,8 @@ function shift(): number {
 let audioTimer = 0;
 let audioToken = 0;
 let audioStatus: '' | 'preparing' | 'error' = '';
+/** Chanson à laquelle appartient le son chargé dans le lecteur audio. */
+let audioFor: string | null = null;
 let audioLabel = '';
 let audioError = '';
 
@@ -1001,8 +1020,11 @@ async function syncAudio() {
     return render();
   }
   const fromYt = usingYt();
-  const t = fromYt ? yt!.getCurrentTime() : player.currentTime;
-  const wasPlaying = fromYt ? ytState === YT_STATE.PLAYING : !player.paused;
+  // le son chargé appartient-il à la chanson ouverte ? Sinon : nouvelle chanson, on part du début, en pause
+  const sameSong = fromYt || audioFor === songKey();
+  const t = !sameSong ? 0 : fromYt ? yt!.getCurrentTime() : player.currentTime;
+  const wasPlaying = (sameSong && (fromYt ? ytState === YT_STATE.PLAYING : !player.paused)) || autoStartAudio;
+  autoStartAudio = false;
 
   // retour à la vidéo originale (sauf si elle ne peut pas être lue ici)
   if (state.source === 'youtube' && target === 0 && !ytBlocked) {
@@ -1042,6 +1064,7 @@ async function syncAudio() {
     if (token !== audioToken) return; // un autre réglage a été demandé entre-temps
     if (fromYt) commandYt((p) => (p.mute(), p.pauseVideo()));
     player.src = url;
+    audioFor = songKey();
     player.hidden = false;
     await new Promise<void>((r) => {
       player.addEventListener('loadedmetadata', () => r(), { once: true });
@@ -1051,7 +1074,8 @@ async function syncAudio() {
     state.appliedSemitones = target;
     audioStatus = '';
     audioLabel = '';
-    if (wasPlaying) void player.play();
+    if (wasPlaying)
+      player.play().catch(() => toast('▶ Appuyez sur lecture pour écouter le son.', { label: '▶ Lecture', run: () => void player.play() }));
   } catch (err) {
     if (token !== audioToken) return;
     audioStatus = 'error';
@@ -1921,6 +1945,7 @@ function mediaDuration(): number {
   return Number.isFinite(player.duration) ? player.duration : state.analysis?.duration ?? 0;
 }
 function togglePlay() {
+  if (!isMediaPlaying()) playIntentAt = performance.now();
   if (usingYt()) {
     if (isMediaPlaying()) yt!.pauseVideo();
     else yt!.playVideo();
@@ -1974,6 +1999,28 @@ function updateTransport() {
     $('tp-time').textContent = `${formatTime(mediaTime())} / ${formatTime(d)}`;
   }
 }
+
+// ---------------------------------------------------------------- déverrouillage du son
+// Safari (iPhone) n'autorise un son que s'il a déjà été lancé lors d'un geste de l'utilisateur :
+// au premier geste sur la page, on lance le lecteur audio en silence, ce qui permet ensuite
+// de démarrer le son automatiquement (par exemple quand une vidéo est refusée par YouTube).
+const SILENT_WAV = URL.createObjectURL(encodeWav([new Float32Array(800)], 8000));
+function unlockAudio() {
+  if (player.getAttribute('src')) return;
+  player.src = SILENT_WAV;
+  player
+    .play()
+    .catch(() => {})
+    .finally(() => {
+      if (player.getAttribute('src') === SILENT_WAV) {
+        player.pause();
+        player.removeAttribute('src');
+        player.load();
+      }
+    });
+}
+document.addEventListener('pointerdown', unlockAudio, { once: true, capture: true });
+document.addEventListener('keydown', unlockAudio, { once: true, capture: true });
 
 // ---------------------------------------------------------------- vitesse et boucle A–B
 let rate = 1;

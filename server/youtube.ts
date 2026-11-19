@@ -10,6 +10,8 @@ export interface VideoInfo {
   author: string;
   duration: number;
   thumbnail: string;
+  /** Faux si le propriétaire interdit la lecture hors de YouTube. */
+  embeddable: boolean;
 }
 
 export class UserError extends Error {}
@@ -77,6 +79,7 @@ export async function fetchInfo(id: string): Promise<VideoInfo> {
     author: String(j.channel ?? j.uploader ?? ''),
     duration: Number(j.duration ?? 0),
     thumbnail: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+    embeddable: j.playable_in_embed !== false,
   };
 }
 

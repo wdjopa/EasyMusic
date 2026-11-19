@@ -104,6 +104,7 @@ export class JobQueue {
         author: info.author,
         duration: info.duration || analysis.duration,
         thumbnail: info.thumbnail,
+        embeddable: info.embeddable,
         analysis,
       };
       this.update(job, { status: 'done', progress: 1, label: 'Terminé', song });

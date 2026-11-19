@@ -30,6 +30,7 @@ import { getSong, listSongs, markNotEmbeddable, removeSong, saveLyrics, savePref
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
 import { startMic, type MicSession } from './ui/mic';
 import { Queue } from './ui/queue';
+import { Layout, type PanelId } from './ui/layout';
 import { deleteAudio, loadStoredIds, onStoredChange, storedIds } from './ui/audioStore';
 import { localAudioUrl, songAudio } from './ui/localAudio';
 import { headline, saveSession, sessionHistory, SessionRecorder, type Passage, type PassageReport } from './ui/session';
@@ -242,7 +243,8 @@ function showSheetView(view: string) {
 }
 document.querySelectorAll<HTMLButtonElement>('.sheet .tab').forEach((t) => (t.onclick = () => showSheetView(t.dataset.view!)));
 try {
-  showSheetView(localStorage.getItem('easymusic.sheetView') ?? 'lyrics');
+  const v = localStorage.getItem('easymusic.sheetView') ?? 'lyrics';
+  showSheetView(['lyrics', 'grid', 'diagrams'].includes(v) ? v : 'lyrics');
 } catch {
   showSheetView('lyrics');
 }
@@ -532,11 +534,7 @@ async function loadYouTube(url: string) {
     // (lancer puis mettre en pause laissait un écran noir sans bouton)
     if (yt) yt.cueVideoById(id);
     else
-      yt = await createPlayer($('yt-player'), id, onYtState, (m, code) => {
-        if (YT_EMBED_BLOCKED.includes(code)) return onEmbedBlocked();
-        ytError(m);
-        stopListening(false);
-      });
+      yt = await createPlayer($('yt-player'), id, onYtState, onYtError);
     history.replaceState(null, '', `?v=${id}`);
     render();
   } catch (err) {
@@ -627,6 +625,12 @@ function persistPrefs() {
 let pendingPrefs: (() => void) | null = null;
 // ne rien perdre si la page est fermée juste après un réglage
 window.addEventListener('pagehide', () => pendingPrefs?.());
+
+function onYtError(m: string, code: number) {
+  if (YT_EMBED_BLOCKED.includes(code)) return onEmbedBlocked();
+  ytError(m);
+  stopListening(false);
+}
 
 function onYtState(s: number) {
   ytState = s;
@@ -2214,7 +2218,7 @@ new IntersectionObserver((entries) => {
   updateMiniNow();
 }).observe($('now-playing'));
 function updateMiniNow() {
-  const show = !nowVisible && !$('workspace').hidden && !!state.analysis && window.innerWidth < 900;
+  const show = (!nowVisible || layout.isCollapsed('now')) && !$('workspace').hidden && !!state.analysis;
   $('mini-now').hidden = !show;
   document.body.classList.toggle('has-mini', show);
 }
@@ -2229,6 +2233,52 @@ function tickMini() {
   $('mini-now').classList.toggle('last', $('gauge').classList.contains('last'));
 }
 
+// ---------------------------------------------------------------- disposition des cartes
+const layout = new Layout($('workspace'), {
+  // déplacer le lecteur YouTube dans la page le recharge : on le recrée et on reprend au même endroit
+  onMove: (id: PanelId) => {
+    if (id === 'video') void remountYouTube();
+  },
+  onChange: () => updateMiniNow(),
+});
+
+async function remountYouTube() {
+  if (!yt || state.source !== 'youtube' || !currentSongId) return;
+  const id = currentSongId;
+  const t = yt.getCurrentTime();
+  const playing = ytState === YT_STATE.PLAYING && usingYt();
+  const muted = followingAudio();
+  try {
+    yt.destroy();
+  } catch {
+    /* le lecteur a déjà été rechargé par le navigateur */
+  }
+  yt = await createPlayer($('yt-player'), id, onYtState, onYtError);
+  if (currentSongId !== id) return;
+  applyRate();
+  if (muted) yt.mute();
+  if (t > 0.5) yt.seekTo(t, true);
+  if (playing) yt.playVideo();
+  else if (t > 0.5) yt.pauseVideo();
+}
+
+/** Résumé affiché dans la barre de titre d'une carte réduite. */
+let summaryAt = 0;
+function updateSummaries() {
+  if (performance.now() - summaryAt < 250) return;
+  summaryAt = performance.now();
+  const set = (id: PanelId, text: string) => {
+    const el = document.querySelector<HTMLElement>(`[data-summary="${id}"]`);
+    if (el && el.textContent !== text) el.textContent = text;
+  };
+  const a = state.analysis;
+  set('video', a || state.buffer ? `${$('song-title').textContent} · ${formatTime(mediaTime())}` : '');
+  set('now', a ? `${$('now-chord').textContent} → ${$('next-chord').textContent}` : '');
+  set('settings', a ? `${state.mode === 'voice' ? `Ma tonalité ${state.semitones > 0 ? '+' : ''}${state.semitones}` : 'Original'} · ${state.capo ? `capo ${state.capo}` : 'sans capo'}` : '');
+  set('sheet', document.querySelector('.sheet .tab.active')?.textContent?.trim() ?? '');
+  set('micro', practice ? `en cours · ${$('pl-score').textContent?.trim() || 'écoute…'}` : 'arrêté');
+}
+
 /** Boucle d'affichage : une erreur ponctuelle ne doit jamais la stopper (l'écran se figerait). */
 function tick() {
   try {
@@ -2241,6 +2291,7 @@ function tick() {
 
 function tickOnce() {
   enforceLoop();
+  updateSummaries();
   if (practice && practiceMode !== 'instrument' && !$('lane-wrap').hidden) {
     lane.draw(mediaTime());
     $('lane-lyric').textContent = lyricLine >= 0 ? sheet[lyricLine]?.text ?? '' : '';

@@ -71,9 +71,19 @@
 
     <!-- Espace de jeu -->
     <main id="workspace" class="workspace" hidden>
-      <!-- colonne gauche : écouter, voir l'accord, régler -->
-      <aside class="stage">
-        <div class="media">
+      <!-- cartes déplaçables (glisser par ⠿) et réductibles (▾) ; disposition retenue dans le navigateur -->
+      <div class="col" data-col="0">
+        <section class="panel" data-panel="video">
+          <header class="panel-head">
+            <button class="ph-drag" type="button" aria-label="Déplacer la carte « Vidéo et lecture » (glisser)" title="Glisser pour déplacer">⠿</button>
+            <h2 class="ph-title">Vidéo et lecture</h2>
+            <span class="ph-summary" data-summary="video"></span>
+            <div class="ph-actions">
+              <button class="ph-menu-btn" type="button" aria-label="Options de la carte « Vidéo et lecture »" aria-haspopup="true">⋮</button>
+              <button class="ph-toggle" type="button" aria-label="Réduire la carte « Vidéo et lecture »" aria-expanded="true">▾</button>
+            </div>
+          </header>
+          <div class="panel-body">
           <div class="yt-wrap" id="yt-wrap" hidden>
             <div id="yt-player"></div>
             <!-- vidéo interdite hors de YouTube : on joue le son, avec la miniature à la place -->
@@ -85,6 +95,13 @@
           <div id="player-wrap" hidden>
             <audio id="player" preload="auto"></audio>
           </div>
+        <div class="song-head">
+          <div class="song-title" id="song-title"></div>
+          <div class="song-meta" id="song-meta"></div>
+        </div>
+
+          </div>
+          <div class="panel-always">
           <!-- commandes de lecture (vidéo YouTube, son transposé ou fichier) -->
           <div class="transport" id="transport" hidden>
             <button class="btn ghost" id="tp-back" title="Reculer de 5 s (←)" aria-label="Reculer de 5 secondes">⏪</button>
@@ -107,12 +124,6 @@
             <span class="small loop-info" id="loop-info"></span>
             <button class="btn small-btn ghost" id="open-report" hidden>📊 Bilan</button>
           </div>
-        </div>
-        <div class="song-head">
-          <div class="song-title" id="song-title"></div>
-          <div class="song-meta" id="song-meta"></div>
-        </div>
-
         <!-- chargement par étapes -->
         <div class="loading" id="loading" hidden>
           <ol class="steps" id="steps"></ol>
@@ -127,7 +138,19 @@
           <span class="small" id="listen-state"></span>
         </div>
 
-        <!-- accord en cours -->
+          </div>
+        </section>
+        <section class="panel" data-panel="now">
+          <header class="panel-head">
+            <button class="ph-drag" type="button" aria-label="Déplacer la carte « Accord en cours » (glisser)" title="Glisser pour déplacer">⠿</button>
+            <h2 class="ph-title">Accord en cours</h2>
+            <span class="ph-summary" data-summary="now"></span>
+            <div class="ph-actions">
+              <button class="ph-menu-btn" type="button" aria-label="Options de la carte « Accord en cours »" aria-haspopup="true">⋮</button>
+              <button class="ph-toggle" type="button" aria-label="Réduire la carte « Accord en cours »" aria-expanded="true">▾</button>
+            </div>
+          </header>
+          <div class="panel-body">
         <div class="now-playing" id="now-playing">
           <p class="key-banner" id="key-banner"></p>
           <div><small>Maintenant</small><div class="big-chord" id="now-chord">—</div></div>
@@ -142,11 +165,21 @@
           </div>
         </div>
 
-      </aside>
-
-      <!-- colonne droite : la partition -->
-      <section class="sheet card" id="step-chords">
-        <!-- réglages : tonalité, transposition, capo -->
+          </div>
+        </section>
+      </div>
+      <div class="col" data-col="1">
+        <section class="panel" data-panel="settings">
+          <header class="panel-head">
+            <button class="ph-drag" type="button" aria-label="Déplacer la carte « Tonalité et capo » (glisser)" title="Glisser pour déplacer">⠿</button>
+            <h2 class="ph-title">Tonalité et capo</h2>
+            <span class="ph-summary" data-summary="settings"></span>
+            <div class="ph-actions">
+              <button class="ph-menu-btn" type="button" aria-label="Options de la carte « Tonalité et capo »" aria-haspopup="true">⋮</button>
+              <button class="ph-toggle" type="button" aria-label="Réduire la carte « Tonalité et capo »" aria-expanded="true">▾</button>
+            </div>
+          </header>
+          <div class="panel-body">
         <div class="controls">
           <div class="mode-switch" role="group" aria-label="Tonalité jouée">
             <button class="mode" data-mode="original"><span>🎵 Original</span><small class="mode-key-orig"></small></button>
@@ -166,12 +199,25 @@
           <p class="small capo-hint" id="capo-hint"></p>
         </div>
 
+          </div>
+        </section>
+        <section class="panel" data-panel="sheet">
+          <header class="panel-head">
+            <button class="ph-drag" type="button" aria-label="Déplacer la carte « Partition » (glisser)" title="Glisser pour déplacer">⠿</button>
+            <h2 class="ph-title">Partition</h2>
+            <span class="ph-summary" data-summary="sheet"></span>
+            <div class="ph-actions">
+              <button class="ph-menu-btn" type="button" aria-label="Options de la carte « Partition »" aria-haspopup="true">⋮</button>
+              <button class="ph-toggle" type="button" aria-label="Réduire la carte « Partition »" aria-expanded="true">▾</button>
+            </div>
+          </header>
+          <div class="panel-body">
+          <div class="sheet" id="step-chords">
         <div class="sheet-head">
           <div class="tabs" role="tablist">
             <button class="tab active" data-view="lyrics" role="tab">🎤 Paroles</button>
             <button class="tab" data-view="grid" role="tab">🎼 Grille</button>
             <button class="tab" data-view="diagrams" role="tab">✋ Doigtés</button>
-            <button class="tab" data-view="practice" role="tab">🎙️ Micro</button>
           </div>
           <div class="sheet-tools">
             <label title="Remplace 7, maj7, sus… par des accords majeurs/mineurs simples"><input type="checkbox" id="simple" checked /> Simplifiés</label>
@@ -199,7 +245,20 @@
         <div class="view" data-view="diagrams" hidden>
           <div class="diagrams" id="diagrams"></div>
         </div>
-        <div class="view" data-view="practice" hidden>
+          </div>
+          </div>
+        </section>
+        <section class="panel" data-panel="micro">
+          <header class="panel-head">
+            <button class="ph-drag" type="button" aria-label="Déplacer la carte « Micro : vérifier mon jeu » (glisser)" title="Glisser pour déplacer">⠿</button>
+            <h2 class="ph-title">Micro : vérifier mon jeu</h2>
+            <span class="ph-summary" data-summary="micro"></span>
+            <div class="ph-actions">
+              <button class="ph-menu-btn" type="button" aria-label="Options de la carte « Micro : vérifier mon jeu »" aria-haspopup="true">⋮</button>
+              <button class="ph-toggle" type="button" aria-label="Réduire la carte « Micro : vérifier mon jeu »" aria-expanded="true">▾</button>
+            </div>
+          </header>
+          <div class="panel-body">
         <section class="practice" id="practice">
           <div class="practice-head">
             <strong>🎙️ Vérifier mon jeu</strong>
@@ -241,8 +300,9 @@
             <div class="pl-score" id="pl-score"></div>
           </div>
         </section>
-        </div>
-      </section>
+          </div>
+        </section>
+      </div>
     </main>
 
     <!-- barre fixe (téléphone) : l'accord en cours quand il n'est plus à l'écran -->

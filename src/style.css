@@ -565,24 +565,73 @@ footer .version { opacity: 0.7; white-space: nowrap; }
   .lyrics { max-height: calc(100vh - 300px); }
 }
 /* réglages compacts en haut de la partition */
-.sheet .controls { padding: 12px 14px 10px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
-.sheet .controls .mode-switch { display: inline-flex; gap: 4px; padding: 3px; margin: 0; }
-.sheet .controls .mode { flex-direction: row; gap: 6px; padding: 6px 10px; }
-.sheet .controls .mode small { font-size: 0.75rem; }
-.sheet .controls .control-row { gap: 8px 12px; }
-.sheet .controls .stepper .btn { width: 34px; height: 34px; }
-.sheet .controls .t-value { min-width: 52px; }
-.sheet .controls .t-value span { font-size: 1.15rem; }
-.sheet .controls .t-value small { font-size: 0.7rem; }
-.sheet .controls #t-auto { padding: 6px 10px; }
-.sheet .controls .audio-state, .sheet .controls .recommend, .sheet .controls .capo-hint { flex-basis: 100%; margin: 0; }
+.controls { padding: 12px 14px 10px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.controls .mode-switch { display: inline-flex; gap: 4px; padding: 3px; margin: 0; }
+.controls .mode { flex-direction: row; gap: 6px; padding: 6px 10px; }
+.controls .mode small { font-size: 0.75rem; }
+.controls .control-row { gap: 8px 12px; }
+.controls .stepper .btn { width: 34px; height: 34px; }
+.controls .t-value { min-width: 52px; }
+.controls .t-value span { font-size: 1.15rem; }
+.controls .t-value small { font-size: 0.7rem; }
+.controls #t-auto { padding: 6px 10px; }
+.controls .audio-state, .controls .recommend, .controls .capo-hint { flex-basis: 100%; margin: 0; }
 /* le micro dans son onglet */
-.view .practice { border: none; padding: 0; }
+.panel .practice { border: none; padding: 0; }
 .tab[data-view="practice"] { margin-left: auto; }
 @media (max-width: 640px) {
-  .sheet .controls .mode-switch { display: flex; width: 100%; }
-  .sheet .controls .mode { flex: 1; justify-content: center; }
+  .controls .mode-switch { display: flex; width: 100%; }
+  .controls .mode { flex: 1; justify-content: center; }
   .tab[data-view="practice"] { margin-left: 0; }
 }
 
 .song .saved { color: var(--voice); white-space: nowrap; }
+
+
+/* ================================================================ cartes déplaçables et réductibles */
+.workspace { display: grid; gap: 16px; align-items: start; }
+@media (min-width: 1000px) { .workspace { grid-template-columns: minmax(380px, 0.9fr) minmax(0, 1.1fr); } }
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 60px; }
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; position: relative; }
+.panel-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 4px; border-bottom: 1px solid var(--line); }
+.panel.collapsed .panel-head { border-bottom: none; }
+.ph-title { margin: 0; font-size: 0.9rem; font-weight: 700; white-space: nowrap; }
+.ph-summary { flex: 1; min-width: 0; font-size: 0.85rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel:not(.collapsed) .ph-summary { visibility: hidden; }
+.ph-actions { display: flex; gap: 2px; position: relative; }
+.ph-drag, .ph-menu-btn, .ph-toggle {
+  font: inherit; color: var(--muted); background: none; border: 1px solid transparent; border-radius: 8px;
+  width: 32px; height: 32px; display: inline-grid; place-items: center; cursor: pointer; flex-shrink: 0;
+}
+.ph-drag { cursor: grab; touch-action: none; font-size: 1.1rem; }
+.ph-drag:hover, .ph-menu-btn:hover, .ph-toggle:hover { color: var(--text); border-color: var(--line); background: var(--bg); }
+.panel-body { padding: 12px; }
+.panel.collapsed .panel-body { display: none; }
+.panel-always { padding: 0 12px 12px; }
+.panel.collapsed .panel-always { padding-top: 10px; }
+/* la partition et les réglages gèrent leurs propres marges */
+.panel[data-panel="sheet"] .panel-body, .panel[data-panel="settings"] .panel-body { padding: 0; }
+.panel[data-panel="now"] .panel-body { padding: 0; }
+.panel[data-panel="now"] .now-playing { border-radius: 0 0 var(--radius) var(--radius); }
+.panel[data-panel="video"] .panel-body { padding: 12px 12px 4px; }
+.panel .sheet { border: none; }
+/* glisser-déposer */
+.panel.dragging { opacity: 0.55; outline: 2px dashed var(--accent); outline-offset: 2px; }
+body.dragging-panel { cursor: grabbing; user-select: none; }
+body.dragging-panel .ph-drag { cursor: grabbing; }
+.drop-marker { height: 6px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent); }
+/* menu de la carte */
+.ph-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 210px; display: grid; padding: 6px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgb(0 0 0 / 0.2);
+}
+.ph-menu button { font: inherit; text-align: left; background: none; border: none; color: var(--text); padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+.ph-menu button:hover:not(:disabled) { background: var(--bg); }
+.ph-menu button:disabled { color: var(--muted); opacity: 0.5; cursor: default; }
+/* la barre « accord en cours » peut aussi servir sur grand écran */
+@media (min-width: 900px) { .mini-now { left: auto; right: 20px; width: 360px; } }
+.panel .sheet { min-height: 0; }
+.panel[data-panel="video"] .yt-wrap { margin-top: 0; }
+@media (min-width: 1000px) { .panel[data-panel="video"] .yt-wrap { max-width: calc(36vh * 16 / 9); margin: 0 auto; } }
+.panel .practice-head > strong { display: none; }
+.lyrics .ai-missing, .lyrics .hint { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }

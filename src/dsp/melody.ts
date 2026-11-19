@@ -18,6 +18,8 @@ export function estimateMelodyRange(spec: Spectrogram, midiLow = 45, midiHigh = 
   const track = new Float32Array(frames.length).fill(NaN);
   const saliences: number[] = [];
   const raw: { m: number; s: number }[] = [];
+  // saillance relative de chaque demi-tône, par trame (pour prolonger les notes tenues, voir plus bas)
+  const semis: Float32Array[] = [];
   for (const mag of frames) {
     let best = -1;
     let bestS = 0;
@@ -57,6 +59,12 @@ export function estimateMelodyRange(spec: Spectrogram, midiLow = 45, midiHigh = 
       }
     }
     const rel = total > 0 ? bestS / total : 0;
+    const semi = new Float32Array(midiHigh - midiLow + 1);
+    if (total > 0) for (let i = 0; i < cands.length; i++) {
+      const j = Math.round(cands[i] - midiLow);
+      semi[j] = Math.max(semi[j], candS[i] / total);
+    }
+    semis.push(semi);
     raw.push({ m: best, s: rel });
     saliences.push(rel);
   }
@@ -78,10 +86,33 @@ export function estimateMelodyRange(spec: Spectrogram, midiLow = 45, midiHigh = 
     }
   }
   if (vals.length < 10) return null;
+  sustainNotes(track, semis, raw, thr, midiLow, 1.5 / (spec.hop / sampleRate));
   vals.sort((a, b) => a - b);
   const low = Math.round(vals[Math.floor(vals.length * 0.05)]);
   const high = Math.round(vals[Math.floor(vals.length * 0.95)]);
   return { low, high, track };
+}
+
+/**
+ * Hystérésis : une note chantée ne s'arrête pas dès qu'un accord plaqué la couvre. Tant que sa hauteur
+ * reste bien présente (seuil plus bas que pour commencer une note), elle est prolongée (au plus `maxFrames`).
+ */
+function sustainNotes(track: Float32Array, semis: Float32Array[], raw: { m: number; s: number }[], thr: number, midiLow: number, maxFrames: number) {
+  let cur = -1;
+  let held = 0;
+  for (let t = 0; t < track.length; t++) {
+    if (Number.isFinite(track[t])) {
+      cur = Math.round(track[t]);
+      held = 0;
+      continue;
+    }
+    if (cur < 0) continue;
+    const v = semis[t][cur - midiLow] ?? 0;
+    if (held < maxFrames && v >= 0.5 * thr && v >= 0.6 * raw[t].s) {
+      track[t] = cur;
+      held++;
+    } else cur = -1;
+  }
 }
 
 /** Tessiture à partir d'une liste de fréquences chantées (micro). */

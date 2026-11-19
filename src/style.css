@@ -640,3 +640,15 @@ body.dragging-panel .ph-drag { cursor: grabbing; }
 .brand { display: inline-flex; align-items: baseline; gap: 0; font-size: 1.2rem; letter-spacing: -0.03em; }
 .brand-enjoy { font-weight: 500; }
 .brand-sing { font-weight: 800; color: var(--accent); }
+
+/* solfège */
+.score { margin-top: 6px; max-height: 520px; overflow: auto; padding: 4px; border: 1px solid var(--line); border-radius: 12px; color: var(--text); }
+.score-sys { cursor: pointer; padding: 4px 8px 2px; border-radius: 10px; }
+.score-sys:hover { background: var(--bg); }
+.score-sys.current { background: var(--accent-soft); }
+.score-text { margin: 4px 0 0; font-weight: 600; font-size: 15px; }
+.score-sys.current .score-text { font-weight: 800; }
+.score-staff svg { display: block; }
+.score .bar-now { fill: var(--accent); }
+.score .abcjs-chord { fill: var(--accent); }
+@media (max-width: 700px) { .score { max-height: calc(100vh - 300px); } }

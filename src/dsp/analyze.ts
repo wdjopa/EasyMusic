@@ -22,6 +22,9 @@ export interface AnalysisResult {
   melody?: number[];
   melodyStep?: number;
   melodyOffset?: number;
+  /** Temps détectés (s) et nombre de temps par mesure : pour écrire la partition. */
+  beats?: number[];
+  meter?: number;
 }
 
 export type Progress = (fraction: number, label: string) => void;
@@ -88,5 +91,7 @@ export function analyze(channels: Float32Array[], sampleRate: number, onProgress
     melodyStep: hop / sr,
     melodyOffset: fftSize / 2 / sr,
     bpm: Math.round(bpm),
+    beats: beats.map((b) => Math.round(b * 1000) / 1000),
+    meter: harmonicBeats === 3 || harmonicBeats === 6 ? 3 : 4,
   };
 }

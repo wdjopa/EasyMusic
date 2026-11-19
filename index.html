@@ -216,12 +216,14 @@
         <div class="sheet-head">
           <div class="tabs" role="tablist">
             <button class="tab active" data-view="lyrics" role="tab">🎤 Paroles</button>
+            <button class="tab" data-view="score" role="tab">🎵 Solfège</button>
             <button class="tab" data-view="grid" role="tab">🎼 Grille</button>
             <button class="tab" data-view="diagrams" role="tab">✋ Doigtés</button>
           </div>
           <div class="sheet-tools">
             <label title="Remplace 7, maj7, sus… par des accords majeurs/mineurs simples"><input type="checkbox" id="simple" checked /> Simplifiés</label>
             <label><input type="checkbox" id="flats" /> Bémols</label>
+            <label id="note-names-box" title="Écrit le nom de chaque note sous la portée" hidden><input type="checkbox" id="note-names" /> Noms des notes</label>
             <button class="btn small-btn" id="copy" title="Copier la grille d'accords">📋 Copier</button>
             <a class="btn small-btn" id="download" hidden>⬇️ Audio</a>
           </div>
@@ -238,6 +240,10 @@
             </span>
           </div>
           <div class="lyrics" id="lyrics"></div>
+        </div>
+        <div class="view" data-view="score" hidden>
+          <p class="small hint" id="score-info"></p>
+          <div class="score" id="score"></div>
         </div>
         <div class="view" data-view="grid" hidden>
           <div class="timeline" id="timeline"></div>

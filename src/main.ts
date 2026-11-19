@@ -4,6 +4,7 @@ import type { ChordSegment } from './dsp/chords';
 import { rangeFromFrequencies } from './dsp/melody';
 import { chordDiagramSvg, diagnoseVoicing, OPEN_PCS, STRING_NAMES, voicingsFor } from './music/guitar';
 import { displayOctave, foldToOctave, melodyNotes } from './music/melody';
+import { buildScore, type Score } from './music/score';
 import { PitchLane } from './ui/pitchLane';
 import {
   bestOctave,
@@ -231,7 +232,13 @@ voiceDialog.addEventListener('click', (e) => {
   if (e.target === voiceDialog) voiceDialog.close();
 });
 
-/** Onglets de la partition : paroles, grille, doigtés (choix retenu). */
+// solfège (voir renderScore)
+let scoreDirty = true;
+let score: Score | null = null;
+let scoreToken = 0;
+let scorePos = '';
+
+/** Onglets de la partition : paroles, solfège, grille, doigtés (choix retenu). */
 function showSheetView(view: string) {
   document.querySelectorAll<HTMLElement>('.sheet .tab').forEach((t) => t.classList.toggle('active', t.dataset.view === view));
   document.querySelectorAll<HTMLElement>('.sheet .view').forEach((v) => (v.hidden = v.dataset.view !== view));
@@ -240,11 +247,13 @@ function showSheetView(view: string) {
   } catch {
     /* ignore */
   }
+  $('note-names-box').hidden = view !== 'score';
+  if (view === 'score' && scoreDirty) void renderScore();
 }
 document.querySelectorAll<HTMLButtonElement>('.sheet .tab').forEach((t) => (t.onclick = () => showSheetView(t.dataset.view!)));
 try {
   const v = localStorage.getItem('easymusic.sheetView') ?? 'lyrics';
-  showSheetView(['lyrics', 'grid', 'diagrams'].includes(v) ? v : 'lyrics');
+  showSheetView(['lyrics', 'score', 'grid', 'diagrams'].includes(v) ? v : 'lyrics');
 } catch {
   showSheetView('lyrics');
 }
@@ -1211,6 +1220,8 @@ function render() {
   rebuildLane();
   renderTimeline();
   renderLyrics();
+  scoreDirty = true;
+  if (!$('score').closest<HTMLElement>('.view')!.hidden) void renderScore();
   renderDiagrams();
   state.currentIdx = -1;
   updateNow();
@@ -1555,6 +1566,110 @@ function updateLyrics() {
   el?.classList.add('current');
   const playing = usingYt() ? ytState === YT_STATE.PLAYING : !player.paused;
   if (el && playing) box.scrollTop = el.offsetTop - box.offsetTop - box.clientHeight / 3;
+}
+
+// ---------------------------------------------------------------- solfège : la mélodie sur une portée
+const noteNamesBox = $<HTMLInputElement>('note-names');
+try {
+  noteNamesBox.checked = localStorage.getItem('easymusic.noteNames') === '1';
+} catch {
+  /* ignore */
+}
+noteNamesBox.onchange = () => {
+  try {
+    localStorage.setItem('easymusic.noteNames', noteNamesBox.checked ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+  void renderScore();
+};
+
+/** Écrit la mélodie (dans la tonalité jouée) en notation musicale, une ligne de portée par ligne de paroles. */
+async function renderScore() {
+  scoreDirty = false;
+  const box = $('score');
+  const info = $('score-info');
+  const a = state.analysis;
+  score = null;
+  scorePos = '';
+  const token = ++scoreToken;
+  if (!a) return void ((box.innerHTML = ''), (info.textContent = ''));
+  const octave = state.mode === 'voice' ? laneOctave : 0;
+  const notes = melodyNotes(a, shift(), 0.15).map((n) => ({ ...n, midi: n.midi + octave }));
+  if (!notes.length) {
+    info.textContent = '';
+    box.innerHTML = '<p class="hint">Mélodie introuvable sur ce morceau : la partition ne peut pas être écrite.</p>';
+    return;
+  }
+  const f = flats();
+  const off = state.lyricsOffset;
+  const s = buildScore({
+    notes,
+    beats: a.beats,
+    bpm: a.bpm,
+    meter: a.meter,
+    duration: a.duration,
+    key: transposeKey(a.key, shift()),
+    chords: segs.filter((g) => g.chord).map((g) => ({ start: g.start, name: chordName(soundingChord(g.chord), f) })),
+    lines: state.lyrics?.synced?.map((l) => ({ start: l.time + off, text: l.text })),
+    noteNames: noteNamesBox.checked,
+    barsPerSystem: box.clientWidth && box.clientWidth < 520 ? 2 : 4,
+  });
+  if (!s.systems.length) {
+    box.innerHTML = '<p class="hint">Mélodie trop incertaine sur ce morceau pour écrire une partition.</p>';
+    return;
+  }
+  box.innerHTML = `<div class="skel-lines">${skeleton(5)}</div>`;
+  const abcjs = await import('abcjs');
+  if (token !== scoreToken) return;
+  info.textContent = `Mélodie du chant, estimée automatiquement : vérifiez à l’oreille. Tonalité ${s.keyLabel.replace('m', ' mineur')}${s.keyLabel.endsWith('m') ? '' : ' majeur'} · ${s.meter}/4 · ${a.bpm ?? '?'} BPM${s.clef === 'bass' ? ' · clé de fa (voix grave)' : ''}. Touchez une mesure pour l’écouter.`;
+  box.innerHTML = s.systems
+    .map((sys, i) => `<div class="score-sys" data-i="${i}">${sys.text ? `<p class="score-text">${escapeHtml(sys.text)}</p>` : ''}<div class="score-staff"></div></div>`)
+    .join('');
+  const staffs = box.querySelectorAll<HTMLElement>('.score-staff');
+  s.systems.forEach((sys, i) => {
+    abcjs.renderAbc(staffs[i], `X:1\n${s.header}${sys.abc}\n`, {
+      responsive: 'resize',
+      add_classes: true,
+      staffwidth: Math.min(640, Math.max(300, box.clientWidth - 40)),
+      paddingtop: 4,
+      paddingbottom: 4,
+      paddingleft: 0,
+      paddingright: 4,
+      format: { gchordfont: 'sans-serif 13 bold', annotationfont: 'sans-serif 11' },
+    });
+  });
+  score = s;
+  box.querySelectorAll<HTMLElement>('.score-sys').forEach((el) => {
+    el.onclick = (e) => {
+      const sys = s.systems[+el.dataset.i!];
+      const m = (e.target as Element).closest('[class*="abcjs-m"]')?.getAttribute('class')?.match(/abcjs-m(\d+)/);
+      const bar = m ? sys.bars[+m[1]] : undefined;
+      mediaSeek(Math.max(0, (bar ?? sys).start) + 0.01);
+    };
+  });
+}
+
+/** Ligne et mesure en cours surlignées pendant la lecture. */
+function updateScore() {
+  if (!score || $('score').closest<HTMLElement>('.view')!.hidden) return;
+  const t = mediaTime();
+  const i = score.systems.findIndex((sys) => t >= sys.start && t < sys.end);
+  const k = i >= 0 ? score.systems[i].bars.findIndex((b) => t >= b.start && t < b.end) : -1;
+  const pos = `${i}:${k}`;
+  if (pos === scorePos) return;
+  const prevSys = scorePos.split(':')[0];
+  scorePos = pos;
+  const box = $('score');
+  box.querySelectorAll('.score-sys.current').forEach((el) => el.classList.remove('current'));
+  box.querySelectorAll('.bar-now').forEach((el) => el.classList.remove('bar-now'));
+  if (i < 0) return;
+  const el = box.querySelector<HTMLElement>(`.score-sys[data-i="${i}"]`);
+  if (!el) return;
+  el.classList.add('current');
+  if (k >= 0) el.querySelectorAll(`.abcjs-m${k}`).forEach((n) => n.classList.add('bar-now'));
+  const playing = usingYt() ? ytState === YT_STATE.PLAYING : !player.paused;
+  if (playing && String(i) !== prevSys) box.scrollTop = el.offsetTop - box.offsetTop - box.clientHeight / 4;
 }
 
 // ---------------------------------------------------------------- vérifier mon jeu (micro)
@@ -2301,6 +2416,7 @@ function tickOnce() {
   updateGauge();
   tickMini();
   updateLyrics();
+  updateScore();
   if (followingAudio() && !player.paused && performance.now() - ytCommandAt > 1500) {
     const drift = yt!.getCurrentTime() - player.currentTime;
     if (Math.abs(drift) > 0.5) commandYt((p) => p.seekTo(player.currentTime, true));

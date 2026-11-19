@@ -1,10 +1,12 @@
 # EnjoySing sur Coolify (voir DEPLOY.md, partie « Avec Coolify »).
 # Coolify fournit le proxy et le HTTPS : pas de tunnel ni de « ports: » ici.
-# Domaine à indiquer dans Coolify pour le service « enjoysing » : https://enjoysing.resub.me:8787
+# Domaine à indiquer dans Coolify pour le service « enjoysing » : https://enjoysing.resub.me (sans port :
+# le serveur écoute sur le port 80, celui que Coolify utilise par défaut)
 services:
   enjoysing:
     build: .
     environment:
+      PORT: 80
       # yt-dlp passe par le fournisseur de jetons PO (service « bgutil » ci-dessous)
       YTDLP_EXTRA_ARGS: "--extractor-args youtubepot-bgutilhttp:base_url=http://bgutil:4416"
       # à renseigner seulement si YouTube bloque encore le serveur : /secrets/cookies.txt
@@ -22,7 +24,7 @@ services:
         target: /secrets/cookies.txt
         is_directory: false
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8787/api/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3

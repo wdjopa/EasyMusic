@@ -25,13 +25,12 @@ Si vous avez un serveur Coolify, utilisez `docker-compose.coolify.yml` : Coolify
    - Branch : `main`
    - Build Pack : **Docker Compose**
    - Base Directory : `/` · Docker Compose Location : `/docker-compose.coolify.yml`
-4. **Domaine** : dans la liste des services, pour `enjoysing`, indiquez **`https://enjoysing.resub.me:8787`**
-   (le `:8787` dit à Coolify sur quel port du conteneur envoyer le trafic ; le site reste en https standard).
-   Laissez `bgutil` sans domaine.
+4. **Domaine** : dans la liste des services, pour `enjoysing`, indiquez **`https://enjoysing.resub.me`** (sans port :
+   le serveur écoute sur le port 80, celui que Coolify utilise par défaut). Laissez `bgutil` sans domaine.
 5. **Environment Variables** (facultatif, les valeurs par défaut conviennent) : `WHISPER_MODEL_NAME`,
    `WHISPER_THREADS`, `RATE_LIMIT_PER_HOUR`, `CONCURRENCY`. Laissez `YTDLP_COOKIES` vide pour l'instant.
 6. **Deploy**. La première construction prend 5 à 10 minutes (compilation de Whisper). Dans **Logs**, vous devez
-   voir `EnjoySing : http://localhost:8787`, puis quelques minutes plus tard `✓ Whisper disponible`.
+   voir `EnjoySing : http://localhost:80`, puis quelques minutes plus tard `✓ Whisper disponible`.
 7. Ouvrez **https://enjoysing.resub.me** et collez un lien YouTube.
 8. **Si YouTube bloque le serveur** : onglet **Persistent Storage**, ouvrez le fichier `/secrets/cookies.txt`, collez
    vos cookies YouTube (voir l'étape 5 plus bas), enregistrez ; puis mettez `YTDLP_COOKIES=/secrets/cookies.txt`

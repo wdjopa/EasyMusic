@@ -1,0 +1,38 @@
+# EnjoySing sur Coolify (voir DEPLOY.md, partie « Avec Coolify »).
+# Coolify fournit le proxy et le HTTPS : pas de tunnel ni de « ports: » ici.
+# Domaine à indiquer dans Coolify pour le service « enjoysing » : https://enjoysing.resub.me:8787
+services:
+  enjoysing:
+    build: .
+    environment:
+      # yt-dlp passe par le fournisseur de jetons PO (service « bgutil » ci-dessous)
+      YTDLP_EXTRA_ARGS: "--extractor-args youtubepot-bgutilhttp:base_url=http://bgutil:4416"
+      # à renseigner seulement si YouTube bloque encore le serveur : /secrets/cookies.txt
+      YTDLP_COOKIES: ${YTDLP_COOKIES}
+      # paroles par IA : base (rapide), small (bon compromis), large-v3-turbo-q5_0 (meilleur, lent sans GPU), none
+      WHISPER_MODEL_NAME: ${WHISPER_MODEL_NAME:-small}
+      WHISPER_THREADS: ${WHISPER_THREADS:-4}
+      RATE_LIMIT_PER_HOUR: ${RATE_LIMIT_PER_HOUR:-30}
+      CONCURRENCY: ${CONCURRENCY:-2}
+    volumes:
+      - whisper-models:/models
+      # fichier de cookies YouTube, modifiable dans Coolify (Persistent Storage) ; vide par défaut
+      - type: bind
+        source: ./secrets/cookies.txt
+        target: /secrets/cookies.txt
+        is_directory: false
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8787/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      - bgutil
+
+  bgutil:
+    image: brainicism/bgutil-ytdlp-pot-provider
+    init: true
+
+volumes:
+  whisper-models:

@@ -11,6 +11,39 @@ Trois services tournent ensemble (`docker-compose.yml`) :
 | `bgutil` | fournisseur de « jetons PO » : aide yt-dlp à passer le blocage « not a bot » de YouTube sur les serveurs |
 | `cloudflared` | le tunnel qui publie le site sur enjoysing.resub.me |
 
+## Avec Coolify
+
+Si vous avez un serveur Coolify, utilisez `docker-compose.coolify.yml` : Coolify fournit le proxy et le HTTPS
+(Let's Encrypt), il n'y a donc ni tunnel ni port à ouvrir en plus. Serveur conseillé : 4 processeurs, 8 Go
+(2 processeurs, 4 Go avec `WHISPER_MODEL_NAME=base`).
+
+1. **DNS Cloudflare** : enregistrement **A** `enjoysing` → adresse IP du serveur Coolify, **nuage gris (DNS only)**
+   pour que Let's Encrypt puisse délivrer le certificat.
+2. **Accès au dépôt** : Coolify › **Sources** › ajoutez une **GitHub App** ayant accès à `wdjopa/EasyMusic`
+   (nécessaire si le dépôt est privé ; elle permet aussi le déploiement automatique à chaque push).
+3. **Créer la ressource** : un projet › **+ New** › **Private Repository (with GitHub App)** › `EasyMusic` :
+   - Branch : `ccr-ea1ff744-lkgaj3`
+   - Build Pack : **Docker Compose**
+   - Base Directory : `/` · Docker Compose Location : `/docker-compose.coolify.yml`
+4. **Domaine** : dans la liste des services, pour `enjoysing`, indiquez **`https://enjoysing.resub.me:8787`**
+   (le `:8787` dit à Coolify sur quel port du conteneur envoyer le trafic ; le site reste en https standard).
+   Laissez `bgutil` sans domaine.
+5. **Environment Variables** (facultatif, les valeurs par défaut conviennent) : `WHISPER_MODEL_NAME`,
+   `WHISPER_THREADS`, `RATE_LIMIT_PER_HOUR`, `CONCURRENCY`. Laissez `YTDLP_COOKIES` vide pour l'instant.
+6. **Deploy**. La première construction prend 5 à 10 minutes (compilation de Whisper). Dans **Logs**, vous devez
+   voir `EnjoySing : http://localhost:8787`, puis quelques minutes plus tard `✓ Whisper disponible`.
+7. Ouvrez **https://enjoysing.resub.me** et collez un lien YouTube.
+8. **Si YouTube bloque le serveur** : onglet **Persistent Storage**, ouvrez le fichier `/secrets/cookies.txt`, collez
+   vos cookies YouTube (voir l'étape 5 plus bas), enregistrez ; puis mettez `YTDLP_COOKIES=/secrets/cookies.txt`
+   dans Environment Variables et **Redeploy**.
+9. (Facultatif) Une fois le certificat obtenu, vous pouvez passer l'enregistrement Cloudflare en **nuage orange**
+   avec SSL/TLS en mode **Full (strict)**.
+
+Mises à jour : chaque push sur la branche redéploie automatiquement (GitHub App), sinon bouton **Redeploy**.
+yt-dlp se met à jour à chaque redémarrage : en cas de souci avec YouTube, **Restart** suffit souvent.
+
+Les parties 1 à 4 ci-dessous concernent l'autre méthode (VPS nu + tunnel Cloudflare).
+
 ## Pourquoi pas Vercel
 
 Vercel convient au site seul, pas au serveur d'analyse : réponses limitées à 4,5 Mo (un fichier audio pèse plus),

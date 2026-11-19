@@ -211,6 +211,9 @@ export function createApp(opts: {
         return await serveFile(req, res, file, audio.cache.format.mime);
       }
 
+      // contrôle de santé (Coolify, Docker) : le serveur répond
+      if (path === '/api/health') return json(res, 200, { ok: true });
+
       if (path === '/api/features' && req.method === 'GET') {
         const whisper = !!(opts.whisper?.available() && audio);
         return json(res, 200, { whisper, whisperReason: whisper ? '' : opts.whisper?.reason?.() ?? 'non configuré', transposedAudio: !!audio });

@@ -189,5 +189,8 @@ describe('serveur', () => {
     let last = 0;
     for (let i = 0; i < 9; i++) last = (await post(`zzzzzzzzzz${i}`)).status;
     expect(last).toBe(429);
+    // derrière Cloudflare : chaque visiteur a sa propre limite (adresse dans « cf-connecting-ip »)
+    const other = await fetch(`${base}/api/analyze`, { method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.7' }, body: JSON.stringify({ url: 'zzzzzzzzzzz' }) });
+    expect(other.status).not.toBe(429);
   });
 });

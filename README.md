@@ -1,4 +1,4 @@
-# 🎸 EasyMusic
+# EnjoySing
 
 Trouvez les **accords de guitare** de n'importe quelle chanson et **transposez-la dans la tessiture de votre voix**.
 L'analyse des fichiers se fait dans le navigateur ; celle des vidéos YouTube sur le serveur.
@@ -37,7 +37,7 @@ npm test         # tests (algorithmes, serveur avec un faux yt-dlp)
 npm run build && npm start   # production : tout sur http://localhost:8787
 ```
 
-Ou avec Docker : `docker build --load -t easymusic . && docker run -p 8787:8787 easymusic`
+**Mise en ligne** (serveur + Cloudflare, sur enjoysing.resub.me) : voir **[DEPLOY.md](DEPLOY.md)**.
 
 Le serveur ne stocke rien sur disque : l'audio est supprimé après l'analyse et le résultat n'est gardé qu'une heure
 en mémoire (pour éviter de retélécharger une vidéo demandée plusieurs fois).
@@ -84,7 +84,7 @@ fournir des cookies (`YTDLP_COOKIES`, avec un compte secondaire : le compte peut
 jour (l'image Docker le met à jour à chaque démarrage). Sur ordinateur, l'app propose en secours d'analyser la
 vidéo en écoutant l'onglet.
 
-Télécharger depuis YouTube est contraire à ses conditions d'utilisation : EasyMusic ne conserve jamais l'audio.
+Télécharger depuis YouTube est contraire à ses conditions d'utilisation : EnjoySing ne conserve jamais l'audio sur le serveur.
 
 ## Structure
 

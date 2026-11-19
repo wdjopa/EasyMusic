@@ -1,4 +1,6 @@
-# EasyMusic : site + serveur d'analyse (Node, ffmpeg, yt-dlp)
+# EnjoySing : site + serveur d'analyse (Node, ffmpeg, yt-dlp, Whisper)
+
+# 1. Le site et le serveur
 FROM node:22-slim AS build
 WORKDIR /app
 COPY package*.json ./
@@ -6,15 +8,29 @@ RUN npm ci
 COPY . .
 RUN npm run build && npm prune --omit=dev && npm install --no-save tsx@4
 
+# 2. whisper.cpp (paroles par IA), compilé en binaire autonome
+FROM debian:bookworm-slim AS whisper
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git cmake build-essential ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+ARG WHISPER_REF=master
+RUN git clone --depth 1 --branch "$WHISPER_REF" https://github.com/ggml-org/whisper.cpp /src \
+ && cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DWHISPER_BUILD_TESTS=OFF \
+ && cmake --build /src/build -j"$(nproc)" --target whisper-cli \
+ && cp /src/build/bin/whisper-cli /usr/local/bin/whisper-cli
+
+# 3. L'image finale
 FROM node:22-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg python3 python3-pip ca-certificates unzip curl \
+ && apt-get install -y --no-install-recommends ffmpeg python3 python3-pip ca-certificates unzip curl libgomp1 \
  && curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh \
- && pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]" \
+ # yt-dlp + le fournisseur de jetons PO (contre le blocage « not a bot » de YouTube sur les serveurs)
+ && pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]" bgutil-ytdlp-pot-provider \
  && rm -rf /var/lib/apt/lists/*
+COPY --from=whisper /usr/local/bin/whisper-cli /usr/local/bin/whisper-cli
 WORKDIR /app
 COPY --from=build /app /app
-ENV NODE_ENV=production PORT=8787 STATIC_DIR=/app/dist
+RUN chmod +x /app/docker/start.sh && mkdir -p /models
+ENV NODE_ENV=production PORT=8787 STATIC_DIR=/app/dist WHISPER_CLI=whisper-cli
 EXPOSE 8787
-# yt-dlp doit rester à jour : YouTube change souvent son fonctionnement
-CMD ["sh", "-c", "pip3 install -q -U --break-system-packages "yt-dlp[default]" || true; exec node_modules/.bin/tsx server/index.ts"]
+CMD ["/app/docker/start.sh"]

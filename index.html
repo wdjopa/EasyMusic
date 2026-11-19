@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>EasyMusic — accords & transposition</title>
+    <title>EnjoySing — accords, paroles et transposition pour votre voix</title>
     <meta name="description" content="Trouvez les accords de guitare de n'importe quelle chanson et transposez-la dans la tessiture de votre voix." />
     <meta name="theme-color" content="#d9622b" />
     <link rel="stylesheet" href="/src/style.css" />
@@ -11,7 +11,7 @@
   <body>
     <!-- Barre du haut : toujours là pour charger une chanson -->
     <header class="appbar">
-      <button class="brand" id="go-home" title="Accueil et catalogue">🎸 <span>EasyMusic</span></button>
+      <button class="brand" id="go-home" title="Accueil et catalogue"><span class="brand-enjoy">Enjoy</span><span class="brand-sing">Sing</span></button>
       <form class="yt-form" id="yt-form">
         <input type="url" id="yt-url" placeholder="Collez un lien YouTube…" required autocomplete="off" />
         <button class="btn primary" type="submit" id="yt-submit"><span class="spinner" aria-hidden="true"></span><span class="lbl">Charger</span></button>
@@ -40,7 +40,7 @@
       <section class="hero">
         <h1>Les accords de n'importe quelle chanson, <em>dans votre voix</em>.</h1>
         <p class="hint">
-          Collez un lien YouTube en haut : EasyMusic trouve les accords, les paroles, et les transpose pour votre voix.
+          Collez un lien YouTube en haut : EnjoySing trouve les accords, les paroles, et les transpose pour votre voix.
         </p>
       </section>
 
@@ -88,7 +88,7 @@
             <div id="yt-player"></div>
             <!-- vidéo interdite hors de YouTube : on joue le son, avec la miniature à la place -->
             <div class="yt-blocked" id="yt-blocked" hidden>
-              <p>🔒 Le propriétaire de cette vidéo interdit sa lecture hors de YouTube.<br /><strong>EasyMusic joue le son à la place</strong> : accords et paroles restent synchronisés.</p>
+              <p>🔒 Le propriétaire de cette vidéo interdit sa lecture hors de YouTube.<br /><strong>EnjoySing joue le son à la place</strong> : accords et paroles restent synchronisés.</p>
               <a class="btn small-btn" id="yt-open" target="_blank" rel="noopener">Voir la vidéo sur YouTube ↗</a>
             </div>
           </div>

@@ -47,7 +47,7 @@ export async function findLyrics(
   fetcher: Fetcher = fetch,
 ): Promise<Lyrics | null> {
   const { query, track, artist } = cleanTitle(q.title, q.author);
-  const headers = { 'user-agent': 'EasyMusic (https://github.com/wdjopa/EasyMusic)' };
+  const headers = { 'user-agent': 'EnjoySing (https://enjoysing.resub.me)' };
   const search = async (params: Record<string, string>) => {
     const r = await fetcher(`https://lrclib.net/api/search?${new URLSearchParams(params)}`, { headers });
     if (!r.ok) throw new Error(`LRCLIB : erreur ${r.status}`);

@@ -60,6 +60,12 @@ async function serveFile(req: IncomingMessage, res: ServerResponse, file: string
   return pipeline(createReadStream(file), res).catch(() => {});
 }
 
+/** Adresse du visiteur : derrière Cloudflare, la vraie adresse est dans « cf-connecting-ip ». */
+function clientIp(req: IncomingMessage): string {
+  const h = req.headers['cf-connecting-ip'] ?? req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '';
+  return String(Array.isArray(h) ? h[0] : h).split(',')[0].trim();
+}
+
 /** Limite simple du nombre de nouvelles analyses par adresse IP. */
 class RateLimiter {
   private hits = new Map<string, number[]>();
@@ -165,7 +171,7 @@ export function createApp(opts: {
         // analyse récente ou en cours : pas de nouveau téléchargement, pas de quota consommé
         const recent = queue.findByVideo(id);
         if (recent) return json(res, recent.song ? 200 : 202, { job: publicJob(recent), song: recent.song });
-        const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+        const ip = clientIp(req);
         if (!limiter.allow(ip)) return json(res, 429, { error: 'Trop d’analyses demandées : réessayez dans une heure.' });
         const job = queue.submit(id);
         return json(res, 202, { job: publicJob(job) });
@@ -186,7 +192,7 @@ export function createApp(opts: {
         if (!Number.isInteger(semi) || Math.abs(semi) > 12) return json(res, 400, { error: 'Transposition invalide.' });
         const id = a[1];
         if (!audio.cache.has(id)) {
-          const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+          const ip = clientIp(req);
           if (!limiter.allow(ip)) return json(res, 429, { error: 'Trop de téléchargements demandés : réessayez dans une heure.' });
         }
         try {
@@ -216,7 +222,7 @@ export function createApp(opts: {
         const id = typeof body.videoId === 'string' ? parseYouTubeId(body.videoId) : null;
         if (!id) return json(res, 400, { error: 'Vidéo invalide.' });
         if (!audio.cache.has(id) && !tByVideo.has(id)) {
-          const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+          const ip = clientIp(req);
           if (!limiter.allow(ip)) return json(res, 429, { error: 'Trop de demandes : réessayez dans une heure.' });
         }
         const job = startTranscription(id, {

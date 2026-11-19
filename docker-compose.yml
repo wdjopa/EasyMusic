@@ -1,0 +1,38 @@
+# EnjoySing en production : l'app, le fournisseur de jetons YouTube et le tunnel Cloudflare.
+# Démarrage : docker compose up -d --build   (voir DEPLOY.md)
+services:
+  enjoysing:
+    build: .
+    restart: unless-stopped
+    environment:
+      # yt-dlp passe par le fournisseur de jetons PO (service « bgutil » ci-dessous)
+      YTDLP_EXTRA_ARGS: "--extractor-args youtubepot-bgutilhttp:base_url=http://bgutil:4416"
+      # cookies YouTube, seulement si le blocage persiste (voir DEPLOY.md)
+      YTDLP_COOKIES: ${YTDLP_COOKIES:-}
+      # paroles par IA : base (rapide), small (bon compromis), large-v3-turbo-q5_0 (meilleur, lent sans GPU), none
+      WHISPER_MODEL_NAME: ${WHISPER_MODEL_NAME:-small}
+      WHISPER_THREADS: ${WHISPER_THREADS:-4}
+      RATE_LIMIT_PER_HOUR: ${RATE_LIMIT_PER_HOUR:-30}
+      CONCURRENCY: ${CONCURRENCY:-2}
+    volumes:
+      - models:/models
+      - ./secrets:/secrets:ro
+    depends_on:
+      - bgutil
+
+  bgutil:
+    image: brainicism/bgutil-ytdlp-pot-provider
+    init: true
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Renseignez CLOUDFLARE_TUNNEL_TOKEN dans le fichier .env}
+    restart: unless-stopped
+    depends_on:
+      - enjoysing
+
+volumes:
+  models:

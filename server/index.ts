@@ -25,7 +25,7 @@ const handler = createApp({
 });
 
 createServer((req, res) => void handler(req, res)).listen(config.port, () => {
-  console.log(`EasyMusic : http://localhost:${config.port}`);
+  console.log(`EnjoySing : http://localhost:${config.port}`);
   whisperAvailable(); // affiche tout de suite si les paroles par IA sont prêtes, et sinon pourquoi
 });
 

@@ -3,3 +3,5 @@ dist
 *.log
 data
 models
+secrets
+.env

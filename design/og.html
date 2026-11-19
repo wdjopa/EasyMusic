@@ -1,0 +1,52 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { width: 1200px; height: 630px; overflow: hidden; font-family: Inter, sans-serif; background: #f6f4ef; color: #1d1b18; position: relative; }
+  .glow { position: absolute; right: -180px; top: -200px; width: 760px; height: 760px; border-radius: 50%; background: radial-gradient(circle, #fbe7dc 0%, rgba(251,231,220,0) 68%); }
+  .left { position: absolute; left: 72px; top: 64px; width: 560px; }
+  .brand { font-size: 44px; letter-spacing: -0.03em; }
+  .brand b { color: #d9622b; font-weight: 800; }
+  .brand span { font-weight: 500; }
+  h1 { margin-top: 54px; font-family: 'Inter Display', Inter, sans-serif; font-size: 62px; line-height: 1.04; letter-spacing: -0.035em; font-weight: 800; }
+  h1 em { font-style: normal; color: #d9622b; }
+  .sub { margin-top: 26px; font-size: 25px; line-height: 1.4; color: #6b665d; }
+  .pills { position: absolute; left: 72px; bottom: 60px; display: flex; gap: 12px; }
+  .pill { padding: 10px 18px; border-radius: 999px; background: #fff; border: 1.5px solid #e4dfd4; font-size: 20px; font-weight: 600; }
+  .card { position: absolute; right: 64px; top: 92px; width: 452px; background: #fff; border-radius: 26px; box-shadow: 0 24px 60px rgba(60,40,20,.14), 0 2px 6px rgba(60,40,20,.06); padding: 26px 28px 22px; }
+  .now { display: flex; align-items: baseline; gap: 14px; }
+  .lbl { font-size: 15px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #9a948a; }
+  .chord { font-size: 76px; font-weight: 800; letter-spacing: -0.03em; color: #d9622b; line-height: 1; }
+  .next { margin-left: auto; font-size: 19px; color: #6b665d; }
+  .next b { color: #1d1b18; font-size: 26px; }
+  .gauge { margin-top: 14px; height: 8px; border-radius: 8px; background: #f1ece3; overflow: hidden; }
+  .gauge div { width: 62%; height: 100%; background: #d9622b; border-radius: 8px; }
+  .lyric { margin-top: 18px; font-size: 22px; font-weight: 700; }
+  #staff { margin-top: 4px; margin-left: -8px; }
+  .key { margin-top: 10px; display: flex; gap: 10px; font-size: 17px; color: #6b665d; }
+  .key b { color: #2f8f6b; }
+  .url { position: absolute; right: 64px; bottom: 66px; font-size: 22px; font-weight: 600; color: #6b665d; }
+</style></head>
+<body>
+  <div class="glow"></div>
+  <div class="left">
+    <div class="brand"><span>Enjoy</span><b>Sing</b></div>
+    <h1>Chantez vos chansons<br><em>dans votre tonalité.</em></h1>
+    <p class="sub">Collez un lien YouTube : accords, paroles et partition, transposés pour votre voix. Guitare, piano ou chant.</p>
+  </div>
+  <div class="pills"><div class="pill">🎼 Accords</div><div class="pill">🎤 Paroles</div><div class="pill">🎵 Solfège</div></div>
+  <div class="card">
+    <div class="now"><span class="chord">Am</span><span class="lbl">maintenant</span><span class="next">ensuite <b>F</b></span></div>
+    <div class="gauge"><div></div></div>
+    <div id="staff"></div>
+    <div class="key">🎤 Transposé pour ma voix : <b>−2 demi-tons</b></div>
+  </div>
+  <div class="url">enjoysing.resub.me</div>
+  <script src="../node_modules/abcjs/dist/abcjs-basic-min.js"></script>
+  <script>
+    ABCJS.renderAbc('staff', 'X:1\nM:4/4\nL:1/8\nK:C\n"Am"E2 G2 A3 B | "F"c2 B2 A4 |\nw: Je chan-te ma voix en-fin', {
+      staffwidth: 420, paddingtop: 6, paddingbottom: 0, paddingleft: 0, paddingright: 0, scale: 1.05,
+      format: { gchordfont: 'Inter 15 bold', vocalfont: 'Inter 15' }, add_classes: true });
+    document.querySelectorAll('.abcjs-chord').forEach((e) => e.setAttribute('fill', '#d9622b'));
+  </script>
+</body></html>

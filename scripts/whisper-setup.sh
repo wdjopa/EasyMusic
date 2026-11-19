@@ -6,7 +6,7 @@ set -euo pipefail
 MODEL="${1:-large-v3-turbo-q5_0}"
 cd "$(dirname "$0")/.."
 
-if ! command -v whisper-cli >/dev/null 2>&1; then
+if ! command -v whisper-cli >/dev/null 2>&1 && ! command -v whisper-cpp >/dev/null 2>&1; then
   if command -v brew >/dev/null 2>&1; then
     echo "→ Installation de whisper.cpp (Homebrew)…"
     brew install whisper-cpp
@@ -26,4 +26,11 @@ else
   curl -L --fail --progress-bar -o "$FILE.part" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-${MODEL}.bin"
   mv "$FILE.part" "$FILE"
 fi
-echo "✓ Whisper est prêt. Relancez le serveur (npm start) : les paroles introuvables seront transcrites par IA."
+CLI="$(command -v whisper-cli || command -v whisper-cpp || true)"
+if [ -z "$CLI" ]; then
+  echo "✗ whisper.cpp n'est toujours pas trouvé : vérifiez « brew install whisper-cpp »."
+  exit 1
+fi
+echo "✓ Whisper est prêt ($CLI, modèle $FILE)."
+echo "  Le serveur le détecte tout seul (dans les 30 s) ; au démarrage, il affiche « ✓ Whisper disponible »."
+echo "  Vérification : curl -s http://localhost:8787/api/features"

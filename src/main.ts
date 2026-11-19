@@ -1321,8 +1321,10 @@ let transcribeLabel = '';
 let transcribeProgress = 0;
 let transcribeError = '';
 let whisperOn = false;
+let whisperWhy = '';
 void fetchFeatures().then((f) => {
   whisperOn = f.whisper;
+  whisperWhy = f.whisperReason ?? '';
   render();
 });
 /** Infos de la chanson ouverte, pour la transcription. */
@@ -1386,7 +1388,10 @@ async function loadLyrics(title: string, author: string, duration: number, songI
     lyricsStatus = l ? 'idle' : 'none';
     if (songId) saveLyrics(songId, l);
     // paroles absentes de la base : l'IA prend le relais
-    if (!l?.synced && songId && state.source === 'youtube' && (await fetchFeatures()).whisper) return void transcribeCurrent();
+    const features = await fetchFeatures();
+    whisperOn = features.whisper;
+    whisperWhy = features.whisperReason ?? '';
+    if (!l?.synced && songId && state.source === 'youtube' && whisperOn) return void transcribeCurrent();
     setStep('lyrics', 'done', l ? (l.synced ? '' : 'non synchronisées') : 'introuvables');
   } catch {
     if (token !== lyricsToken) return;
@@ -1499,8 +1504,13 @@ function renderLyrics() {
     box.innerHTML = `<p class="hint">Paroles indisponibles pour le moment.</p>${aiButton('Transcrire par IA')}${aiError}`;
     return wire();
   }
+  // l'IA n'est pas installée sur le serveur : on le dit, avec la marche à suivre
+  const aiMissing =
+    !whisperOn && state.source === 'youtube' && whisperWhy
+      ? `<p class="hint ai-missing">🤖 Paroles par IA indisponibles sur le serveur : ${escapeHtml(whisperWhy)}.</p>`
+      : '';
   if (!l) {
-    box.innerHTML = `<p class="hint">Paroles introuvables pour ce morceau${canAI ? '' : '.'}</p>${aiButton('Transcrire les paroles par IA')}${aiError}`;
+    box.innerHTML = `<p class="hint">Paroles introuvables pour ce morceau${canAI ? '' : '.'}</p>${aiButton('Transcrire les paroles par IA')}${aiError}${aiMissing}`;
     return wire();
   }
   if (!l.synced) {

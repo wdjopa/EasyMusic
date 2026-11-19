@@ -157,7 +157,7 @@ describe('serveur', () => {
   });
 
   it('transcrit les paroles par IA quand on le demande', async () => {
-    expect(await (await fetch(`${base}/api/features`)).json()).toEqual({ whisper: true, transposedAudio: true });
+    expect(await (await fetch(`${base}/api/features`)).json()).toMatchObject({ whisper: true, transposedAudio: true });
     const r = await fetch(`${base}/api/lyrics/transcribe`, { method: 'POST', body: JSON.stringify({ videoId: 'sinus440abc', title: 'Artiste - Titre (Official Video)', author: 'Artiste' }) });
     expect(r.status).toBe(202);
     const { job } = await r.json();

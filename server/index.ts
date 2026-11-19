@@ -5,7 +5,7 @@ import { config } from './config';
 import { analyzeOffThread } from './analyzer';
 import { AudioCache } from './audioCache';
 import { JobQueue } from './jobs';
-import { transcribe, whisperAvailable } from './whisper';
+import { transcribe, whisperAvailable, whisperReason } from './whisper';
 import { downloadAudio, fetchInfo } from './youtube';
 
 const audioCache = new AudioCache();
@@ -14,7 +14,7 @@ const queue = new JobQueue({ fetchInfo, downloadAudio, analyze: analyzeOffThread
 );
 const handler = createApp({
   queue,
-  whisper: { available: whisperAvailable, transcribe },
+  whisper: { available: whisperAvailable, reason: whisperReason, transcribe },
   audio: {
     cache: audioCache,
     // téléchargement pour la lecture seule (chanson ouverte depuis le catalogue)
@@ -26,6 +26,7 @@ const handler = createApp({
 
 createServer((req, res) => void handler(req, res)).listen(config.port, () => {
   console.log(`EasyMusic : http://localhost:${config.port}`);
+  whisperAvailable(); // affiche tout de suite si les paroles par IA sont prêtes, et sinon pourquoi
 });
 
 // ne laisser aucun fichier audio derrière soi

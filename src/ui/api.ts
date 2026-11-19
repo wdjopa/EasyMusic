@@ -80,11 +80,17 @@ export async function fetchLyrics(title: string, author: string, duration?: numb
   return body.lyrics as Lyrics;
 }
 
-let featuresCache: Promise<{ whisper: boolean; transposedAudio: boolean }> | null = null;
-/** Fonctions disponibles sur le serveur (transcription IA…). */
-export function fetchFeatures(): Promise<{ whisper: boolean; transposedAudio: boolean }> {
-  featuresCache ??= req<{ whisper: boolean; transposedAudio: boolean }>('/api/features').catch(() => ({ whisper: false, transposedAudio: false }));
-  return featuresCache;
+export interface Features {
+  whisper: boolean;
+  whisperReason?: string;
+  transposedAudio: boolean;
+}
+let featuresCache: { at: number; p: Promise<Features> } | null = null;
+/** Fonctions disponibles sur le serveur (transcription IA…), redemandées toutes les 30 s. */
+export function fetchFeatures(): Promise<Features> {
+  if (!featuresCache || Date.now() - featuresCache.at > 30_000)
+    featuresCache = { at: Date.now(), p: req<Features>('/api/features').catch(() => ({ whisper: false, whisperReason: 'serveur injoignable', transposedAudio: false })) };
+  return featuresCache.p;
 }
 
 /** Fait transcrire les paroles par IA (Whisper, sur le serveur) et attend le résultat. */

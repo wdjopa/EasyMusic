@@ -81,7 +81,7 @@ export function createApp(opts: {
   /** Recherche de paroles (remplaçable dans les tests). */
   findLyrics?: typeof findLyrics;
   /** Transcription des paroles par IA (Whisper), si installée. */
-  whisper?: { available: () => boolean; transcribe: (file: string, onProgress: (f: number) => void) => Promise<LyricLine[]> };
+  whisper?: { available: () => boolean; reason?: () => string; transcribe: (file: string, onProgress: (f: number) => void) => Promise<LyricLine[]> };
   /** Lecture transposée des vidéos (facultatif). */
   audio?: { cache: AudioCache; download: (id: string) => Promise<void> };
 }) {
@@ -123,6 +123,7 @@ export function createApp(opts: {
       } catch (e) {
         job.status = 'error';
         job.error = (e as Error).message;
+        console.warn(`✗ Transcription ${videoId} : ${job.error}`);
       }
       job.at = Date.now();
     });
@@ -205,7 +206,8 @@ export function createApp(opts: {
       }
 
       if (path === '/api/features' && req.method === 'GET') {
-        return json(res, 200, { whisper: !!(opts.whisper?.available() && audio), transposedAudio: !!audio });
+        const whisper = !!(opts.whisper?.available() && audio);
+        return json(res, 200, { whisper, whisperReason: whisper ? '' : opts.whisper?.reason?.() ?? 'non configuré', transposedAudio: !!audio });
       }
 
       if (path === '/api/lyrics/transcribe' && req.method === 'POST') {

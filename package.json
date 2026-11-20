@@ -13,6 +13,7 @@
     "whisper:setup": "bash scripts/whisper-setup.sh"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
     "@types/node": "^22.20.5",
     "concurrently": "^9.2.5",
     "tsx": "^4.23.15",
@@ -21,6 +22,10 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
-    "abcjs": "^6.4.4"
+    "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/plugin-http": "^2.9.0",
+    "abcjs": "^6.4.4",
+    "bgutils-js": "^4.0.3",
+    "youtubei.js": "^18.3.0"
   }
 }

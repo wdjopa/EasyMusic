@@ -2430,6 +2430,8 @@ refreshCatalogue();
 onStoredChange(() => renderCatalogue());
 void loadStoredIds();
 $('app-version').textContent = __APP_VERSION__;
+// apps Android / iOS (Tauri) : audio récupéré depuis le téléphone, réglages d'interface
+if ('__TAURI_INTERNALS__' in window) void import('./native/mobile').then((m) => m.initMobile()).catch((e) => console.warn('mobile :', e));
 const initial = new URLSearchParams(location.search).get('v');
 if (initial && parseYouTubeId(initial)) {
   $<HTMLInputElement>('yt-url').value = `https://www.youtube.com/watch?v=${initial}`;

@@ -82,7 +82,8 @@ Depuis un hébergeur cloud, YouTube répond fréquemment « Sign in to confirm y
 héberger le serveur sur une connexion résidentielle, passer par un proxy résidentiel (`YTDLP_EXTRA_ARGS`), ou
 fournir des cookies (`YTDLP_COOKIES`, avec un compte secondaire : le compte peut être suspendu). Gardez yt-dlp à
 jour (l'image Docker le met à jour à chaque démarrage). Sur ordinateur, l'app propose en secours d'analyser la
-vidéo en écoutant l'onglet.
+vidéo en écoutant l'onglet. L'**app ordinateur** (Tauri, voir [docs/desktop.md](docs/desktop.md)) télécharge
+l'audio depuis la machine de l'utilisateur, avec son adresse IP de particulier.
 
 Télécharger depuis YouTube est contraire à ses conditions d'utilisation : EnjoySing ne conserve jamais l'audio sur le serveur.
 
@@ -94,7 +95,9 @@ src/
   dsp/        traitement du signal (FFT, chroma, accords, tonalité, YIN, mélodie, pitch-shift, worker)
   music/      théorie musicale (transposition, tessitures, capo) et doigtés de guitare
   ui/         micro, lecteur YouTube, écoute de l'onglet, encodage WAV
+  native/     intégration des apps Tauri (fournisseur d'audio yt-dlp de l'ordinateur)
   main.ts     interface
+src-tauri/    app ordinateur Tauri v2 (yt-dlp et Deno embarqués), voir docs/desktop.md
 tests/        tests Vitest
 ```
 

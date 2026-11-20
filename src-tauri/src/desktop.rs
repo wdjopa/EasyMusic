@@ -36,7 +36,8 @@ struct Status {
 
 const EXE_SUFFIX: &str = if cfg!(windows) { ".exe" } else { "" };
 
-/// Programme embarqué (« sidecar ») : Tauri le place à côté de l'exécutable de l'app.
+/// Programme embarqué (« sidecar ») : Tauri le place à côté de l'exécutable de l'app
+/// (préfixe « enjoysing- » : pas de conflit dans /usr/bin avec un yt-dlp ou un Deno du système).
 /// Les variables ENJOYSING_YTDLP / ENJOYSING_DENO permettent d'en utiliser d'autres (tests, dépannage).
 fn sidecar(name: &str, env: &str) -> PathBuf {
     if let Some(p) = std::env::var_os(env) {
@@ -53,8 +54,8 @@ impl AppState {
     async fn tools(&self) -> &ytdlp::Tools {
         self.tools
             .get_or_init(|| async {
-                let bundled = sidecar("yt-dlp", "ENJOYSING_YTDLP");
-                let deno = sidecar("deno", "ENJOYSING_DENO");
+                let bundled = sidecar("enjoysing-yt-dlp", "ENJOYSING_YTDLP");
+                let deno = sidecar("enjoysing-deno", "ENJOYSING_DENO");
                 let data_dir = self.data_dir.lock().unwrap().clone();
                 let ytdlp = match (&data_dir, std::env::var_os("ENJOYSING_YTDLP")) {
                     (Some(dir), None) => updater::prepare(&bundled, dir).await,

@@ -2,8 +2,10 @@
 // Télécharge les programmes embarqués dans l'app ordinateur (« sidecars » Tauri) :
 //  - yt-dlp : binaire officiel des releases GitHub de yt-dlp (contient déjà les scripts EJS) ;
 //  - Deno : runtime JavaScript exigé par yt-dlp pour YouTube (le seul activé par défaut, cf. wiki EJS).
-// Ils ne sont jamais commités : ce script les place dans src-tauri/binaries/<nom>-<triplet cible>[.exe],
-// le nommage attendu par Tauri (bundle.externalBin). Les sommes SHA-256 publiées sont vérifiées.
+// Ils ne sont jamais commités : ce script les place dans src-tauri/binaries/enjoysing-<nom>-<triplet cible>[.exe],
+// le nommage attendu par Tauri (bundle.externalBin). Préfixe « enjoysing- » : le paquet .deb les installe
+// dans /usr/bin, où un « yt-dlp » ou un « deno » du système existe peut-être déjà.
+// Les sommes SHA-256 publiées sont vérifiées.
 //
 // Usage : node scripts/fetch-sidecars.mjs [--target <triplet>] [--force]
 //   triplet par défaut : celui de rustc (machine actuelle). « universal-apple-darwin » pour un Mac universel.
@@ -90,7 +92,7 @@ function unzip(zip, dir) {
 }
 
 async function fetchYtDlp() {
-  const dest = join(outDir, `yt-dlp-${target}${exe}`);
+  const dest = join(outDir, `enjoysing-yt-dlp-${target}${exe}`);
   if (existsSync(dest) && !force) return console.log(`✓ ${dest} (déjà présent)`);
   const asset = YTDLP_ASSETS[target];
   const sums = (await download(`${ytRelease}/SHA2-256SUMS`)).toString();
@@ -102,7 +104,7 @@ async function fetchYtDlp() {
 }
 
 async function fetchDeno() {
-  const dest = join(outDir, `deno-${target}${exe}`);
+  const dest = join(outDir, `enjoysing-deno-${target}${exe}`);
   if (existsSync(dest) && !force) return console.log(`✓ ${dest} (déjà présent)`);
   const work = mkdtempSync(join(tmpdir(), 'enjoysing-deno-'));
   try {

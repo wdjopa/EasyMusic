@@ -802,7 +802,8 @@ function onEmbedBlocked(known = false, byOwner = true) {
   if (ytBlocked || state.source !== 'youtube') return;
   ytBlocked = true;
   // la lecture venait d'être demandée : le son démarre tout seul, sans second clic
-  autoStartAudio = !known && performance.now() - playIntentAt < 10_000;
+  // (pas quand c'est le lecteur qui refuse de s'afficher : l'erreur arrive dès le chargement)
+  autoStartAudio = !known && byOwner && performance.now() - playIntentAt < 10_000;
   if (currentSongId && byOwner) markNotEmbeddable(currentSongId);
   $('yt-blocked-why').textContent = byOwner
     ? 'Le propriétaire de cette vidéo interdit sa lecture hors de YouTube.'

@@ -54,7 +54,11 @@ export async function obtainSong(id: string, onProgress: Progress, signal?: { ca
     return await analyzeVideo(id, onProgress, signal);
   } catch (e) {
     const fb = audioProvider();
-    if (signal?.cancelled || !fb || fb.priority !== 'fallback') throw e;
+    if (signal?.cancelled) throw e;
+    // sans aide locale : on indique comment contourner le blocage
+    if (!fb && /bloque|robot|403/i.test((e as Error).message))
+      throw new Error(`${(e as Error).message} Sur ordinateur, installez l’extension « EnjoySing Helper » (lien en bas de page) qui contourne ce blocage, ou importez le fichier audio de la chanson.`);
+    if (!fb || fb.priority !== 'fallback') throw e;
     onProgress(0.02, `Le serveur n’a pas pu récupérer la vidéo : essai avec l’${fb.label}…`);
     return analyzeWithProvider(fb, id, onProgress, signal);
   }

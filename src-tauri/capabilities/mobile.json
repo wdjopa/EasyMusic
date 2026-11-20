@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Apps Android / iOS : récupération de l'audio YouTube depuis le téléphone (fetch par Rust), bouton retour",
+  "platforms": ["android", "iOS"],
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:app:default",
+    "core:app:allow-exit",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://www.youtube.com/*" },
+        { "url": "https://youtube.com/*" },
+        { "url": "https://m.youtube.com/*" },
+        { "url": "https://youtubei.googleapis.com/*" },
+        { "url": "https://*.googlevideo.com/*" },
+        { "url": "https://*.ytimg.com/*" },
+        { "url": "https://jnn-pa.googleapis.com/*" },
+        { "url": "https://www.google.com/js/*" }
+      ]
+    }
+  ]
+}

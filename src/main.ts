@@ -43,10 +43,11 @@ import { encodeWav } from './ui/wav';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
-// app Tauri : fournisseur d'audio natif (yt-dlp sur l'ordinateur), chargé seulement dans l'app
+// app Tauri : fournisseur d'audio natif, chargé seulement dans l'app
+// (ordinateur : yt-dlp ; Android / iOS : youtubei.js depuis le téléphone, voir native/mobile.ts)
 const nativeReady: Promise<void> =
   '__TAURI_INTERNALS__' in window
-    ? import('./native/tauri').then(
+    ? Promise.all([import('./native/tauri'), import('./native/mobile').then((m) => m.initMobile())]).then(
         () => {},
         (e) => console.warn('Module natif indisponible :', e),
       )

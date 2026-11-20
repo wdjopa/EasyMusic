@@ -21,6 +21,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["process", "io-util", "fs", "sync", "macros", "time", "rt"] }
 
+# Apps Android / iOS : requêtes faites par Rust (audio YouTube depuis l'IP du téléphone, sans CORS),
+# voir src/native/mobile.ts. « unsafe-headers » : youtubei.js doit pouvoir fixer User-Agent, Origin…
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["process", "io-util", "fs", "sync", "macros", "time", "rt", "rt-multi-thread"] }
 tempfile = "3"

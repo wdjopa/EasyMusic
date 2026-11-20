@@ -1,0 +1,139 @@
+# Apps mobiles (Tauri v2) : APK / AAB Android et build iOS.
+# Voir docs/mobile.md pour les secrets de signature et la distribution.
+name: Apps mobiles
+
+on:
+  push:
+    branches: [tauri-mobile]
+    tags: ['v*']
+  pull_request:
+    paths: ['src/**', 'src-tauri/**', 'package*.json', '.github/workflows/mobile.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android (APK + AAB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NDK_VERSION: 27.2.12479018
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+      - name: NDK
+        run: |
+          sdkmanager --install "ndk;${NDK_VERSION}"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Clé de signature (si les secrets sont fournis)
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            {
+              echo "storeFile=$RUNNER_TEMP/upload.jks"
+              echo "password=$KEYSTORE_PASSWORD"
+              echo "keyAlias=$KEY_ALIAS"
+            } > src-tauri/gen/android/app/keystore.properties
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Pas de secrets ANDROID_KEYSTORE_* : APK release NON signé, APK debug fourni pour tester."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release (APK universel + AAB)
+        run: npx tauri android build --apk --aab
+
+      - name: Build debug (APK installable sans signature, téléphones arm64)
+        if: steps.signing.outputs.signed != 'true'
+        run: npx tauri android build --debug --apk --target aarch64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enjoysing-android
+          path: |
+            src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+            src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
+          if-no-files-found: error
+
+  ios:
+    name: iOS (simulateur, non signé)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      # le contexte « secrets » n'est pas lisible dans les conditions « if » des étapes
+      HAS_APPLE_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # Le projet Xcode n'est pas versionné (il ne peut être créé que sur macOS) : on le crée ici.
+      # Les réglages propres à l'app (micro…) viennent de src-tauri/Info.ios.plist.
+      - name: tauri ios init
+        run: |
+          if [ ! -d src-tauri/gen/apple ]; then npx tauri ios init --ci; fi
+
+      - name: Build simulateur (sans signature)
+        if: env.HAS_APPLE_TEAM != 'true'
+        run: npx tauri ios build --target aarch64-sim --debug --ci
+
+      # Avec un compte Apple Developer (voir docs/mobile.md) : build signé pour TestFlight.
+      - name: Build signé (IPA)
+        if: env.HAS_APPLE_TEAM == 'true'
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$APPLE_API_KEY_CONTENT" > ~/.appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY}.p8
+          export APPLE_API_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY}.p8
+          npx tauri ios build --export-method app-store-connect --ci
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enjoysing-ios
+          path: |
+            src-tauri/gen/apple/build/**/*.app
+            src-tauri/gen/apple/build/**/*.ipa
+          if-no-files-found: warn

@@ -24,6 +24,9 @@ pub fn run() {
         });
     #[cfg(desktop)]
     let builder = desktop::setup(builder);
+    // mobile : fetch par Rust pour récupérer l'audio YouTube depuis le téléphone (src/native/mobile.ts)
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_http::init());
     builder
         .run(tauri::generate_context!())
         .expect("erreur au lancement d'EnjoySing");

@@ -38,10 +38,19 @@ import { obtainSong } from './ui/obtain';
 import { headline, saveSession, sessionHistory, SessionRecorder, type Passage, type PassageReport } from './ui/session';
 import { startPractice, type PracticeSession } from './ui/practice';
 import { heardChordTones, judgeChord, judgeVoice, SILENCE_RMS, type LiveFrame, type PracticeMode } from './dsp/live';
-import { createPlayer, parseYouTubeId, YT_EMBED_BLOCKED, YT_STATE, type YTPlayer } from './ui/youtube';
+import { createPlayer, parseYouTubeId, YT_EMBED_BLOCKED, YT_OWNER_BLOCKED, YT_STATE, type YTPlayer } from './ui/youtube';
 import { encodeWav } from './ui/wav';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+
+// app Tauri : fournisseur d'audio natif (yt-dlp sur l'ordinateur), chargé seulement dans l'app
+const nativeReady: Promise<void> =
+  '__TAURI_INTERNALS__' in window
+    ? import('./native/tauri').then(
+        () => {},
+        (e) => console.warn('Module natif indisponible :', e),
+      )
+    : Promise.resolve();
 
 // ---------------------------------------------------------------- état
 const state = {
@@ -637,7 +646,7 @@ let pendingPrefs: (() => void) | null = null;
 window.addEventListener('pagehide', () => pendingPrefs?.());
 
 function onYtError(m: string, code: number) {
-  if (YT_EMBED_BLOCKED.includes(code)) return onEmbedBlocked();
+  if (YT_EMBED_BLOCKED.includes(code)) return onEmbedBlocked(false, YT_OWNER_BLOCKED.includes(code));
   ytError(m);
   stopListening(false);
 }
@@ -786,13 +795,18 @@ let autoStartAudio = false;
 /**
  * Vidéo interdite hors de YouTube : on joue le son à la place. `known` = on le savait d'avance
  * (analyse ou erreur précédente) : pas besoin d'essayer le lecteur YouTube.
+ * `byOwner` = refus du propriétaire (retenu pour cette vidéo) ; sinon c'est le lecteur qui refuse
+ * de s'afficher ici (app servie depuis tauri://) : rien à retenir sur la vidéo elle-même.
  */
-function onEmbedBlocked(known = false) {
+function onEmbedBlocked(known = false, byOwner = true) {
   if (ytBlocked || state.source !== 'youtube') return;
   ytBlocked = true;
   // la lecture venait d'être demandée : le son démarre tout seul, sans second clic
   autoStartAudio = !known && performance.now() - playIntentAt < 10_000;
-  if (currentSongId) markNotEmbeddable(currentSongId);
+  if (currentSongId && byOwner) markNotEmbeddable(currentSongId);
+  $('yt-blocked-why').textContent = byOwner
+    ? 'Le propriétaire de cette vidéo interdit sa lecture hors de YouTube.'
+    : 'Le lecteur YouTube ne peut pas s’afficher dans l’application.';
   yt?.pauseVideo();
   const id = currentSongId;
   const blocked = $('yt-blocked');
@@ -2433,5 +2447,5 @@ $('app-version').textContent = __APP_VERSION__;
 const initial = new URLSearchParams(location.search).get('v');
 if (initial && parseYouTubeId(initial)) {
   $<HTMLInputElement>('yt-url').value = `https://www.youtube.com/watch?v=${initial}`;
-  void loadYouTube(initial);
+  void nativeReady.then(() => loadYouTube(initial));
 }

@@ -10,9 +10,16 @@
     "build": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "whisper:setup": "bash scripts/whisper-setup.sh"
+    "whisper:setup": "bash scripts/whisper-setup.sh",
+    "tauri": "tauri",
+    "tauri:sidecars": "node scripts/fetch-sidecars.mjs",
+    "tauri:web:dev": "vite --mode tauri --port 1420 --strictPort",
+    "tauri:web:build": "tsc --noEmit && vite build --mode tauri",
+    "tauri:dev": "node scripts/fetch-sidecars.mjs && tauri dev",
+    "tauri:build": "node scripts/fetch-sidecars.mjs && tauri build"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
     "@types/node": "^22.20.5",
     "concurrently": "^9.2.5",
     "tsx": "^4.23.15",
@@ -21,6 +28,8 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/plugin-opener": "^2.7.3",
     "abcjs": "^6.4.4"
   }
 }

@@ -1,0 +1,4 @@
+# Généré par Cargo
+/target/
+# Binaires embarqués (yt-dlp, Deno) : téléchargés par scripts/fetch-sidecars.mjs, jamais commités
+/binaries/

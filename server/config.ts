@@ -34,6 +34,13 @@ export const config = {
   whisperThreads: Number(env.WHISPER_THREADS ?? 4),
   /** Réglage DTW (déduit du nom du modèle si absent). */
   whisperDtw: env.WHISPER_DTW || undefined,
+  /** Dossier du catalogue partagé (analyses et paroles déjà calculées). */
+  dataDir: resolve(env.DATA_DIR ?? 'data'),
+  /** Origines autorisées à appeler l'API depuis un autre site (apps Tauri, développement). */
+  corsOrigins: (env.CORS_ORIGINS ?? 'tauri://localhost,http://tauri.localhost,https://tauri.localhost,http://localhost:1420')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
   /** Fréquence d'échantillonnage utilisée pour l'analyse. */
   sampleRate: 22050,
 };

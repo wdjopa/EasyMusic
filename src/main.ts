@@ -25,7 +25,7 @@ import {
   transposeKey,
   VOICE_TYPES,
 } from './music/theory';
-import { analyzeVideo, fetchFeatures, fetchLyrics, transcribeLyrics } from './ui/api';
+import { fetchFeatures, fetchLyrics, transcribeLyrics } from './ui/api';
 import type { Lyrics } from './shared/lyrics';
 import { getSong, listSongs, markNotEmbeddable, removeSong, saveLyrics, savePrefs, saveSong, type LibrarySong } from './ui/library';
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
@@ -34,6 +34,7 @@ import { Queue } from './ui/queue';
 import { Layout, type PanelId } from './ui/layout';
 import { deleteAudio, loadStoredIds, onStoredChange, storedIds } from './ui/audioStore';
 import { localAudioUrl, songAudio } from './ui/localAudio';
+import { obtainSong } from './ui/obtain';
 import { headline, saveSession, sessionHistory, SessionRecorder, type Passage, type PassageReport } from './ui/session';
 import { startPractice, type PracticeSession } from './ui/practice';
 import { heardChordTones, judgeChord, judgeVoice, SILENCE_RMS, type LiveFrame, type PracticeMode } from './dsp/live';
@@ -563,7 +564,7 @@ async function loadYouTube(url: string) {
   startLoading(['info', 'download', 'analyze', 'lyrics']);
   setStep('info', 'active');
   try {
-    const song = await analyzeVideo(id, (f, l) => !token.cancelled && setProgress(f, l), token);
+    const song = await obtainSong(id, (f, l) => !token.cancelled && setProgress(f, l), token);
     if (token.cancelled) return;
     setProgress(null);
     saveSong(song);

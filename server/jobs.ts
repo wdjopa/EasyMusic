@@ -38,6 +38,8 @@ export class JobQueue {
     private concurrency = config.concurrency,
     /** Si fourni, garde l'audio téléchargé un moment pour la lecture transposée. */
     private keep?: (videoId: string, dir: string, file: string) => void,
+    /** Appelé avec chaque analyse réussie (catalogue partagé). */
+    private onDone?: (song: Song) => void,
   ) {}
 
   get(id: string): Job | undefined {
@@ -108,6 +110,7 @@ export class JobQueue {
         analysis,
       };
       this.update(job, { status: 'done', progress: 1, label: 'Terminé', song });
+      this.onDone?.(song);
     } catch (e) {
       const err = e as Error;
       if (!(err instanceof UserError)) console.error(`Analyse ${job.videoId} :`, err.message);

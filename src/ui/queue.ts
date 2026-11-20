@@ -1,9 +1,10 @@
 // File d'attente : des chansons analysées en arrière-plan, sans toucher à celle qui joue.
 import { ANALYSIS_VERSION } from '../dsp/analyze';
 import { parseYouTubeId } from '../shared/youtubeId';
-import { analyzeVideo, fetchFeatures, fetchLyrics, transcribeLyrics } from './api';
+import { fetchFeatures, fetchLyrics, transcribeLyrics } from './api';
 import { getSong, saveLyrics, saveSong } from './library';
 import { songAudio } from './localAudio';
+import { obtainSong } from './obtain';
 
 export interface QueueItem {
   id: string; // identifiant YouTube
@@ -121,7 +122,7 @@ export class Queue {
     const signal = { cancelled: false };
     const check = () => (signal.cancelled = this.cancelled.has(item.id));
     try {
-      const song = await analyzeVideo(
+      const song = await obtainSong(
         item.id,
         (f, label, title) => {
           if (check()) return;

@@ -14,8 +14,11 @@ services:
       WHISPER_THREADS: ${WHISPER_THREADS:-4}
       RATE_LIMIT_PER_HOUR: ${RATE_LIMIT_PER_HOUR:-30}
       CONCURRENCY: ${CONCURRENCY:-2}
+      DATA_DIR: /data
     volumes:
       - models:/models
+      # catalogue partagé : analyses et paroles déjà calculées (jamais d'audio)
+      - catalogue:/data
       - ./secrets:/secrets:ro
     depends_on:
       - bgutil
@@ -36,3 +39,4 @@ services:
 
 volumes:
   models:
+  catalogue:

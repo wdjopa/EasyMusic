@@ -5,12 +5,17 @@ import { config } from './config';
 import { analyzeOffThread } from './analyzer';
 import { AudioCache } from './audioCache';
 import { JobQueue } from './jobs';
+import { Catalogue } from './catalogue';
 import { transcribe, whisperAvailable, whisperReason } from './whisper';
 import { downloadAudio, fetchInfo } from './youtube';
 
 const audioCache = new AudioCache();
-const queue = new JobQueue({ fetchInfo, downloadAudio, analyze: analyzeOffThread }, undefined, (id, dir, file) =>
-  audioCache.keep(id, dir, file),
+const catalogue = new Catalogue(config.dataDir);
+const queue = new JobQueue(
+  { fetchInfo, downloadAudio, analyze: analyzeOffThread },
+  undefined,
+  (id, dir, file) => audioCache.keep(id, dir, file),
+  (song) => void catalogue.put(song),
 );
 const handler = createApp({
   queue,
@@ -22,6 +27,8 @@ const handler = createApp({
   },
   staticDir: existsSync(config.staticDir) ? config.staticDir : undefined,
   rateLimitPerHour: config.rateLimitPerHour,
+  catalogue,
+  corsOrigins: config.corsOrigins,
 });
 
 createServer((req, res) => void handler(req, res)).listen(config.port, () => {

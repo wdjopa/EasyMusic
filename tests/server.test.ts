@@ -27,6 +27,7 @@ let base = '';
 let dataDir = '';
 let cache: import('../server/audioCache').AudioCache;
 let sineWav = '';
+let catalogue: import('../server/catalogue').Catalogue;
 
 beforeAll(async () => {
   const dir = await mkdtemp(join(tmpdir(), 'easymusic-test-'));
@@ -56,10 +57,15 @@ beforeAll(async () => {
   const { createApp } = await import('../server/app');
   const { fetchInfo, downloadAudio } = await import('../server/youtube');
   const { AudioCache } = await import('../server/audioCache');
+  const { Catalogue } = await import('../server/catalogue');
   cache = new AudioCache();
-  const queue = new JobQueue({ fetchInfo, downloadAudio }, 2, (id, d, f) => cache.keep(id, d, f));
+  catalogue = new Catalogue(join(dir, 'catalogue'));
+  const queue = new JobQueue({ fetchInfo, downloadAudio }, 2, (id, d, f) => cache.keep(id, d, f), (song) => void catalogue.put(song));
   const handler = createApp({
     queue,
+    catalogue,
+    corsOrigins: ['tauri://localhost'],
+    videoInfo: async (id) => (id === 'pasdutout00' ? null : { id, title: 'Titre oEmbed', author: 'Chaîne', thumbnail: '', embeddable: id !== 'nonintegre0' }),
     rateLimitPerHour: 8,
     whisper: {
       available: () => true,
@@ -171,6 +177,38 @@ describe('serveur', () => {
     expect(res!.lyrics!.synced[0].time).toBe(4.5);
     expect(res!.lyrics!.source).toBe('Whisper (IA)');
     expect(res!.lyrics!.track).toBe('Titre');
+  });
+
+  it('catalogue partagé : une analyse faite pour quelqu’un est resservie à tous, sans téléchargement', async () => {
+    expect((await fetch(`${base}/api/catalogue/inconnu0000`)).status).toBe(404);
+    const done = await waitJob((await post('https://youtu.be/partage0001')).body.job.id);
+    expect(done.job.status).toBe('done');
+    await new Promise((ok) => setTimeout(ok, 50)); // écriture sur disque
+    const r = await (await fetch(`${base}/api/catalogue/partage0001`)).json();
+    expect(r.song.title).toBe('Chanson de test');
+    // survit à un redémarrage (lu depuis le disque) et répond même si la limite est atteinte
+    const { Catalogue } = await import('../server/catalogue');
+    const fresh = new Catalogue((catalogue as unknown as { dir: string }).dir);
+    expect((await fresh.get('partage0001'))?.analysis.key).toEqual(r.song.analysis.key);
+    // les paroles transcrites par IA sont gardées aussi
+    expect((await catalogue.getLyrics('sinus440abc'))?.source).toBe('Whisper (IA)');
+    const again = await fetch(`${base}/api/lyrics/transcribe`, { method: 'POST', body: JSON.stringify({ videoId: 'sinus440abc' }) });
+    expect(again.status).toBe(200);
+    expect((await again.json()).lyrics.source).toBe('Whisper (IA)');
+  });
+
+  it('infos publiques d’une vidéo (titre, intégration autorisée)', async () => {
+    expect((await (await fetch(`${base}/api/info/abcdefghijk`)).json()).info).toMatchObject({ title: 'Titre oEmbed', embeddable: true });
+    expect((await (await fetch(`${base}/api/info/nonintegre0`)).json()).info.embeddable).toBe(false);
+    expect((await fetch(`${base}/api/info/pasdutout00`)).status).toBe(404);
+  });
+
+  it('autorise les apps (Tauri) à appeler l’API, pas les autres sites', async () => {
+    const pre = await fetch(`${base}/api/analyze`, { method: 'OPTIONS', headers: { origin: 'tauri://localhost', 'access-control-request-method': 'POST' } });
+    expect(pre.status).toBe(204);
+    expect(pre.headers.get('access-control-allow-origin')).toBe('tauri://localhost');
+    const evil = await fetch(`${base}/api/features`, { headers: { origin: 'https://evil.example' } });
+    expect(evil.headers.get('access-control-allow-origin')).toBeNull();
   });
 
   it('rejette les liens invalides', async () => {

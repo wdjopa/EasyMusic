@@ -16,8 +16,11 @@ services:
       WHISPER_THREADS: ${WHISPER_THREADS:-4}
       RATE_LIMIT_PER_HOUR: ${RATE_LIMIT_PER_HOUR:-30}
       CONCURRENCY: ${CONCURRENCY:-2}
+      DATA_DIR: /data
     volumes:
       - whisper-models:/models
+      # catalogue partagé : analyses et paroles déjà calculées (jamais d'audio)
+      - catalogue:/data
       # fichier de cookies YouTube, modifiable dans Coolify (Persistent Storage) ; vide par défaut
       - type: bind
         source: ./secrets/cookies.txt
@@ -38,3 +41,4 @@ services:
 
 volumes:
   whisper-models:
+  catalogue:

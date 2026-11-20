@@ -1,3 +1,4 @@
+import type { Catalogue } from './catalogue';
 import crypto from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
@@ -90,8 +91,16 @@ export function createApp(opts: {
   whisper?: { available: () => boolean; reason?: () => string; transcribe: (file: string, onProgress: (f: number) => void) => Promise<LyricLine[]> };
   /** Lecture transposée des vidéos (facultatif). */
   audio?: { cache: AudioCache; download: (id: string) => Promise<void> };
+  /** Catalogue partagé des analyses (facultatif). */
+  catalogue?: Catalogue;
+  /** Origines autorisées à appeler l'API depuis ailleurs (apps Tauri). */
+  corsOrigins?: string[];
+  /** Infos publiques d'une vidéo (titre, auteur…) sans la télécharger (remplaçable dans les tests). */
+  videoInfo?: (id: string) => Promise<PublicInfo | null>;
 }) {
-  const { queue, staticDir, audio } = opts;
+  const { queue, staticDir, audio, catalogue } = opts;
+  const getInfo = opts.videoInfo ?? oembedInfo;
+  const infoCache = new Map<string, PublicInfo | null>();
   const limiter = new RateLimiter(opts.rateLimitPerHour);
   const lyricsCache = new Map<string, Lyrics | null>();
 
@@ -126,6 +135,7 @@ export function createApp(opts: {
         job.status = 'done';
         job.progress = 1;
         job.label = 'Terminé';
+        void catalogue?.putLyrics(videoId, job.lyrics);
       } catch (e) {
         job.status = 'error';
         job.error = (e as Error).message;
@@ -163,7 +173,36 @@ export function createApp(opts: {
   return async function handler(req: IncomingMessage, res: ServerResponse) {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const path = url.pathname;
+    // apps Tauri (autre origine que le site) : autorisées à appeler l'API
+    const origin = req.headers.origin;
+    if (origin && path.startsWith('/api/') && opts.corsOrigins?.includes(origin)) {
+      res.setHeader('access-control-allow-origin', origin);
+      res.setHeader('vary', 'origin');
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, { 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type', 'access-control-max-age': '86400' });
+        return res.end();
+      }
+    }
     try {
+      // catalogue partagé : analyse déjà faite par le serveur pour quelqu'un d'autre
+      const cat = path.match(/^\/api\/catalogue\/([\w-]{11})$/);
+      if (cat && req.method === 'GET') {
+        const song = await catalogue?.get(cat[1]);
+        return song ? json(res, 200, { song }) : json(res, 404, { error: 'Pas encore analysée.' });
+      }
+
+      // infos publiques d'une vidéo (pour les analyses faites sur l'appareil de l'utilisateur)
+      const inf = path.match(/^\/api\/info\/([\w-]{11})$/);
+      if (inf && req.method === 'GET') {
+        const id = inf[1];
+        if (!infoCache.has(id)) {
+          infoCache.set(id, await getInfo(id).catch(() => null));
+          if (infoCache.size > 1000) infoCache.delete(infoCache.keys().next().value!);
+        }
+        const info = infoCache.get(id);
+        return info ? json(res, 200, { info }) : json(res, 404, { error: 'Vidéo introuvable.' });
+      }
+
       if (path === '/api/analyze' && req.method === 'POST') {
         const body = (await readBody(req)) as { url?: unknown };
         const id = typeof body.url === 'string' ? parseYouTubeId(body.url) : null;
@@ -171,6 +210,8 @@ export function createApp(opts: {
         // analyse récente ou en cours : pas de nouveau téléchargement, pas de quota consommé
         const recent = queue.findByVideo(id);
         if (recent) return json(res, recent.song ? 200 : 202, { job: publicJob(recent), song: recent.song });
+        const shared = await catalogue?.get(id);
+        if (shared) return json(res, 200, { job: { id: 'catalogue', videoId: id, status: 'done', progress: 1, label: 'Déjà analysée', updatedAt: Date.now() }, song: shared });
         const ip = clientIp(req);
         if (!limiter.allow(ip)) return json(res, 429, { error: 'Trop d’analyses demandées : réessayez dans une heure.' });
         const job = queue.submit(id);
@@ -224,6 +265,8 @@ export function createApp(opts: {
         const body = (await readBody(req)) as { videoId?: unknown; title?: unknown; author?: unknown };
         const id = typeof body.videoId === 'string' ? parseYouTubeId(body.videoId) : null;
         if (!id) return json(res, 400, { error: 'Vidéo invalide.' });
+        const known = await catalogue?.getLyrics(id);
+        if (known) return json(res, 200, { job: { id: 'catalogue', videoId: id, status: 'done', progress: 1, label: 'Terminé', at: Date.now() }, lyrics: known });
         if (!audio.cache.has(id) && !tByVideo.has(id)) {
           const ip = clientIp(req);
           if (!limiter.allow(ip)) return json(res, 429, { error: 'Trop de demandes : réessayez dans une heure.' });
@@ -271,4 +314,25 @@ export function createApp(opts: {
       if (!res.headersSent) json(res, 500, { error: 'Erreur interne' });
     }
   };
+}
+
+export interface PublicInfo {
+  id: string;
+  title: string;
+  author: string;
+  thumbnail: string;
+  /** Faux si la vidéo ne peut pas être lue hors de YouTube. */
+  embeddable: boolean;
+}
+
+/** Infos publiques via oEmbed (YouTube les sert aussi aux serveurs : pas de vérification anti-robot). */
+async function oembedInfo(id: string): Promise<PublicInfo | null> {
+  const r = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}`, {
+    signal: AbortSignal.timeout(8000),
+  });
+  // 401 : intégration désactivée par le propriétaire (la vidéo existe)
+  if (r.status === 401 || r.status === 403) return { id, title: 'Vidéo YouTube', author: '', thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, embeddable: false };
+  if (!r.ok) return null;
+  const j = (await r.json()) as { title?: string; author_name?: string; thumbnail_url?: string };
+  return { id, title: j.title ?? 'Vidéo YouTube', author: j.author_name ?? '', thumbnail: j.thumbnail_url ?? `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, embeddable: true };
 }

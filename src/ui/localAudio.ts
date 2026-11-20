@@ -3,6 +3,7 @@
 import { shiftInWorker } from '../dsp/client';
 import { prepareTransposedAudio } from './api';
 import { getAudio, putAudio } from './audioStore';
+import { audioProvider } from './audioProvider';
 import { encodeWav } from './wav';
 
 const inFlight = new Map<string, Promise<Blob>>();
@@ -12,6 +13,13 @@ export function fetchAndStoreAudio(id: string): Promise<Blob> {
   let p = inFlight.get(id);
   if (!p) {
     p = (async () => {
+      // fournisseur local (app, extension) : depuis l'appareil, sans passer par le serveur
+      const local = audioProvider();
+      if (local?.priority === 'first') {
+        const blob = await local.fetchAudio(id, () => {});
+        await putAudio(id, blob);
+        return blob;
+      }
       const url = await prepareTransposedAudio(id, 0);
       const r = await fetch(url);
       if (!r.ok) throw new Error(`Audio indisponible (${r.status})`);

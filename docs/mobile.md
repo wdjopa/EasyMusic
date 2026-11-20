@@ -186,3 +186,18 @@ Apple n'autorise pas l'installation libre d'un fichier comme sur Android :
   `tauri.conf.json`, elle doit autoriser `'unsafe-eval'` et les Workers.
 - Le site web n'est pas alourdi : `youtubei.js` et `bgutils-js` ne sont chargés que dans l'app
   (import dynamique).
+
+## État (rapport de la session « apps mobiles »)
+
+- **Vérifié** : 114 tests (dont 16 pour l'extraction mobile, avec réponses factices), `tsc`, build
+  Vite ; **APK Android debug arm64 compilé dans le conteneur de développement** (Rust + Gradle),
+  avec les permissions `INTERNET`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`. Le WebView Android de
+  Tauri transforme la demande de micro de `getUserMedia` en demande de permission `RECORD_AUDIO`.
+- **Non vérifié** : la vraie récupération de l'audio YouTube (conteneur bloqué par YouTube, pas de
+  téléphone), le jeton PO BotGuard, l'iframe YouTube et le micro sur un vrai téléphone, tout le
+  build iOS (pas de macOS ici : `tauri ios init` est lancé par la CI, dont le job iOS n'a pas
+  encore tourné) et la signature Android/iOS en CI.
+- **À faire par vous** : lancer le workflow *Apps mobiles* (ou pousser sur `tauri-mobile`),
+  installer l'APK debug sur un téléphone Android et suivre la liste « À vérifier » ci-dessus ;
+  créer la clé Android et les secrets ; pour iOS, un Mac ou le job CI, puis un compte Apple
+  Developer pour TestFlight.

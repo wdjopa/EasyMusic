@@ -67,7 +67,12 @@ function loadApi(): Promise<YTNamespace> {
 }
 
 /** Codes d'erreur : vidéo dont le propriétaire interdit la lecture hors de YouTube. */
-export const YT_EMBED_BLOCKED = [101, 150];
+export const YT_OWNER_BLOCKED = [101, 150];
+/**
+ * Codes d'erreur pour lesquels on joue le son à la place de la vidéo : refus du propriétaire, et
+ * lecteur refusé faute d'origine web reconnue (152, 153 : cas des apps, servies depuis tauri://).
+ */
+export const YT_EMBED_BLOCKED = [...YT_OWNER_BLOCKED, 152, 153];
 
 export const YT_ERRORS: Record<number, string> = {
   2: 'Lien YouTube invalide.',
@@ -75,6 +80,8 @@ export const YT_ERRORS: Record<number, string> = {
   100: 'Vidéo introuvable ou privée.',
   101: 'Le propriétaire de cette vidéo interdit sa lecture en dehors de YouTube.',
   150: 'Le propriétaire de cette vidéo interdit sa lecture en dehors de YouTube.',
+  152: 'Le lecteur YouTube ne peut pas s’afficher ici.',
+  153: 'Le lecteur YouTube ne peut pas s’afficher ici.',
 };
 
 export async function createPlayer(

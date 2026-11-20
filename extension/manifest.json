@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "EnjoySing Helper",
+  "short_name": "EnjoySing",
+  "version": "0.1.0",
+  "description": "Permet à EnjoySing d'analyser les chansons YouTube que le serveur ne peut pas récupérer, en les écoutant depuis votre navigateur.",
+  "icons": { "128": "icons/icon-128.png" },
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://enjoysing.resub.me/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.youtube.com/watch*"],
+      "js": ["capture.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": { "id": "helper@enjoysing.resub.me", "strict_min_version": "121.0" }
+  }
+}

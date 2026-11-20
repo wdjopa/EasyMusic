@@ -16,7 +16,10 @@ bot »), mais pas un téléphone ordinaire.
 | `src/native/youtubeMobile.ts` | Logique d'extraction : clients YouTube essayés un par un, choix du format, téléchargement par morceaux. Testé dans `tests/youtubeMobile.test.ts`. |
 | `src/native/poToken.ts` | Jetons PO (BotGuard, via `bgutils-js`) pour les clients web, en dernier recours. |
 | `src/native/ytEval.worker.ts` | Déchiffre les signatures du lecteur YouTube dans un Worker isolé. |
-| `src-tauri/` | Projet Tauri commun (ordinateur, Android, iOS). Plugin `http` : les requêtes YouTube sont faites par Rust (pas de CORS). |
+| `src-tauri/` | Projet Tauri commun (ordinateur, Android, iOS ; l'app ordinateur et yt-dlp sont décrits par la branche `tauri`). Sur mobile, plugin `http` : les requêtes YouTube sont faites par Rust (pas de CORS). |
+| `src-tauri/capabilities/mobile.json` | Droits des apps mobiles (domaines joignables par le `fetch` natif, bouton retour). |
+| `src-tauri/gen/android` | Projet Android Studio (créé par `tauri android init`, versionné). |
+| `src-tauri/Info.ios.plist` | Réglages ajoutés à l'app iOS (texte de la demande d'accès au micro). |
 
 Déroulement quand on colle un lien :
 
@@ -70,8 +73,10 @@ npx tauri android build --debug --apk --target aarch64
 adb install src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
 ```
 
-Pour `android:dev`, le téléphone doit joindre l'ordinateur sur le réseau local (même Wi-Fi) :
-Tauri règle l'adresse tout seul.
+Pour `android:dev`, le téléphone doit joindre l'ordinateur sur le réseau local (même Wi-Fi) : le
+serveur de développement Vite écoute sur le port 1420 (`npm run tauri:web:dev`), Tauri règle
+l'adresse tout seul. Les builds lancent `npm run tauri:web:build` (vérification des types + Vite
+en mode `tauri`, donc avec `VITE_API_BASE` de `.env.tauri`).
 
 ### iOS (sur un Mac)
 

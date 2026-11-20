@@ -1,0 +1,33 @@
+[package]
+name = "enjoysing"
+version = "0.1.0"
+description = "EnjoySing : accords, paroles et partition d'une chanson YouTube, transposés pour votre voix"
+authors = ["EnjoySing"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+# nom distinct du binaire (exigé par Windows) ; staticlib/cdylib servent aux apps mobiles
+name = "enjoysing_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "fs", "sync", "macros", "time", "rt"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["process", "io-util", "fs", "sync", "macros", "time", "rt", "rt-multi-thread"] }
+tempfile = "3"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

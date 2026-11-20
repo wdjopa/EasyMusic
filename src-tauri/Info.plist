@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- fusionné par Tauri dans l'Info.plist de l'app macOS : texte de la demande d'accès au micro -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>EnjoySing écoute votre voix ou votre instrument pour mesurer votre tessiture et vérifier votre jeu. Le son reste sur votre ordinateur.</string>
+</dict>
+</plist>

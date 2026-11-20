@@ -1,0 +1,132 @@
+# App ordinateur (Tauri v2) : tests à chaque modification, puis compilation macOS (universel),
+# Windows et Linux sur une étiquette « v* » ou à la demande ; les installeurs sont joints
+# à un BROUILLON de release GitHub (à relire puis publier à la main). Voir docs/desktop.md.
+name: App ordinateur
+
+on:
+  push:
+    branches: [main, tauri]
+    tags: ['v*']
+    paths-ignore: ['docs/**', '*.md']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Paquets système (WebKitGTK)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - name: Types et tests du front
+        run: npx tsc --noEmit && npx tsc --noEmit -p tsconfig.server.json && npx vitest run
+      - name: Programmes embarqués (yt-dlp, Deno)
+        run: node scripts/fetch-sidecars.mjs
+      - name: Tests Rust (faux yt-dlp)
+        working-directory: src-tauri
+        run: cargo test --locked
+
+  build:
+    needs: tests
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: universal-apple-darwin
+            args: --target universal-apple-darwin
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: ''
+          # 22.04 : glibc assez ancienne pour que l'AppImage et le .deb marchent sur la plupart des distributions
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Paquets système (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - name: Programmes embarqués (yt-dlp, Deno)
+        run: node scripts/fetch-sidecars.mjs --target ${{ matrix.target }}
+
+      # ---- signature : FACULTATIVE, active seulement si les secrets existent (voir docs/desktop.md)
+      - name: Signature macOS (si configurée)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # une variable vide ferait échouer Tauri : on ne transmet que celles qui sont renseignées
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!v}" ]; then echo "$v=${!v}" >> "$GITHUB_ENV"; fi
+          done
+          if [ -z "$APPLE_CERTIFICATE" ]; then echo "Pas de certificat Apple : app non signée."; fi
+      - name: Signature Windows (si configurée)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE) { Write-Host "Pas de certificat Windows : installeur non signé."; exit 0 }
+          $pfx = Join-Path $env:RUNNER_TEMP 'certificat.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $pwd = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pwd
+          Remove-Item $pfx
+          $conf = @{ bundle = @{ windows = @{ certificateThumbprint = $cert.Thumbprint; digestAlgorithm = 'sha256'; timestampUrl = 'http://timestamp.digicert.com' } } } | ConvertTo-Json -Compress -Depth 5
+          Set-Content -Path src-tauri/tauri.signature.json -Value $conf
+          "SIGN_ARGS=--config src-tauri/tauri.signature.json" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: EnjoySing __VERSION__
+          releaseBody: |
+            App ordinateur EnjoySing. Voir docs/desktop.md pour l'installation.
+            - macOS : EnjoySing_*_universal.dmg (Intel et Apple Silicon)
+            - Windows : *_x64-setup.exe ou *.msi
+            - Linux : *.AppImage, *.deb ou *.rpm
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }} ${{ env.SIGN_ARGS }}

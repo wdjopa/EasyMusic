@@ -42,17 +42,21 @@ export async function obtainSong(id: string, onProgress: Progress, signal?: { ca
   const shared = await catalogueSong(id);
   if (shared && shared.analysis.version === ANALYSIS_VERSION) return shared;
   const p = audioProvider();
+  let localError: Error | null = null;
   if (p?.priority === 'first') {
     try {
       return await analyzeWithProvider(p, id, onProgress, signal);
     } catch (e) {
       if (signal?.cancelled) throw e;
-      console.warn(`${p.label} : ${(e as Error).message} — essai par le serveur`);
+      localError = e as Error;
+      console.warn(`${p.label} : ${localError.message} — essai par le serveur`);
     }
   }
   try {
     return await analyzeVideo(id, onProgress, signal);
   } catch (e) {
+    // les deux ont échoué : la raison locale (yt-dlp de l'appareil) est la plus utile
+    if (localError && !signal?.cancelled) throw new Error(`${localError.message} (serveur : ${(e as Error).message})`);
     const fb = audioProvider();
     if (signal?.cancelled) throw e;
     // sans aide locale : on indique comment contourner le blocage

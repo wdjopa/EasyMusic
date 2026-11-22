@@ -96,6 +96,30 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
+          # le certificat collé dans le secret contient souvent des retours à la ligne ou des espaces :
+          # on les retire, puis on vérifie qu'il s'ouvre bien (sans jamais afficher son contenu)
+          if [ -n "$APPLE_CERTIFICATE" ]; then
+            APPLE_CERTIFICATE=$(printf '%s' "$APPLE_CERTIFICATE" | tr -d ' \r\n\t')
+            if ! printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12" 2>/dev/null; then
+              echo "::error::APPLE_CERTIFICATE n'est pas du base64 valide : refaire « base64 -i certificat.p12 | pbcopy » et recoller le résultat."
+              exit 1
+            fi
+            echo "Certificat : $(wc -c < "$RUNNER_TEMP/cert.p12") octets"
+            if ! openssl pkcs12 -in "$RUNNER_TEMP/cert.p12" -nokeys -passin env:APPLE_CERTIFICATE_PASSWORD -legacy > /dev/null 2>&1 \
+              && ! openssl pkcs12 -in "$RUNNER_TEMP/cert.p12" -nokeys -passin env:APPLE_CERTIFICATE_PASSWORD > /dev/null 2>&1; then
+              echo "::error::Le certificat ne s'ouvre pas avec APPLE_CERTIFICATE_PASSWORD (mauvais mot de passe, ou fichier qui n'est pas un .p12)."
+              exit 1
+            fi
+            SUBJECTS=$( (openssl pkcs12 -in "$RUNNER_TEMP/cert.p12" -nokeys -passin env:APPLE_CERTIFICATE_PASSWORD -legacy 2>/dev/null \
+              || openssl pkcs12 -in "$RUNNER_TEMP/cert.p12" -nokeys -passin env:APPLE_CERTIFICATE_PASSWORD 2>/dev/null) | grep '^subject=' || true)
+            printf '%s' "$SUBJECTS" | grep -q 'Developer ID Application' \
+              && echo "Certificat « Developer ID Application » trouvé." \
+              || echo "::warning::Ce certificat n'est pas un « Developer ID Application » : la notarisation risque d'échouer."
+            if [ -n "$APPLE_SIGNING_IDENTITY" ] && ! printf '%s' "$SUBJECTS" | grep -qF "$APPLE_SIGNING_IDENTITY"; then
+              echo "::warning::APPLE_SIGNING_IDENTITY ne correspond pas exactement au nom du certificat (copier le nom tel qu'affiché dans le Trousseau)."
+            fi
+            rm -f "$RUNNER_TEMP/cert.p12"
+          fi
           # une variable vide ferait échouer Tauri : on ne transmet que celles qui sont renseignées
           # (syntaxe à délimiteur : le certificat base64 peut tenir sur plusieurs lignes)
           for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID KEYCHAIN_PASSWORD; do

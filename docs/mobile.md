@@ -116,8 +116,10 @@ si besoin, l'ordre des clients dans `CLIENTS_PAR_DEFAUT` (`src/native/youtubeMob
 demande (onglet *Actions* → *Apps mobiles* → *Run workflow*). Les fichiers produits sont dans les
 *artifacts* du run :
 
-- **Android** : APK universel + AAB (release) ; sans clé de signature, l'APK release n'est pas signé
-  et un **APK debug arm64** (installable) est fourni en plus ;
+- **Android** : sans clé de signature, un seul fichier `enjoysing-test.apk` (universel, signé avec une clé
+  de test générée pendant la compilation : installable pour essayer, mais chaque compilation a une clé
+  différente, donc désinstaller avant de mettre à jour) ; avec les secrets `ANDROID_KEYSTORE_*` :
+  `enjoysing.apk` et `enjoysing.aab` signés avec votre clé ;
 - **iOS** : build pour le simulateur, non signé ; IPA signé si les secrets Apple sont fournis.
 
 ### Secrets pour signer

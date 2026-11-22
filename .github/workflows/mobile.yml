@@ -74,16 +74,31 @@ jobs:
       - name: Build release (APK universel + AAB)
         run: npx tauri android build --apk --aab
 
-      - name: Build debug (APK installable sans signature, téléphones arm64)
-        if: steps.signing.outputs.signed != 'true'
-        run: npx tauri android build --debug --apk --target aarch64
+      # Sans clé de l'utilisateur, l'APK release n'est pas signé et Android refuse de l'installer
+      # (« le package semble ne pas être valide ») : on le signe alors avec une clé de TEST générée ici.
+      # Installable pour essayer ; pour publier, fournir les secrets ANDROID_KEYSTORE_* (voir docs/mobile.md).
+      - name: APK installable
+        run: |
+          mkdir -p dist-android
+          OUT=src-tauri/gen/android/app/build/outputs
+          APK=$(ls $OUT/apk/universal/release/*.apk | head -1)
+          if [ "${{ steps.signing.outputs.signed }}" != "true" ]; then
+            BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+            keytool -genkeypair -keystore "$RUNNER_TEMP/test.jks" -storepass android -keypass android -alias test \
+              -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=EnjoySing test" -noprompt
+            "$BT/zipalign" -f -p 4 "$APK" "$RUNNER_TEMP/aligned.apk"
+            "$BT/apksigner" sign --ks "$RUNNER_TEMP/test.jks" --ks-pass pass:android --out dist-android/enjoysing-test.apk "$RUNNER_TEMP/aligned.apk"
+            "$BT/apksigner" verify dist-android/enjoysing-test.apk
+          else
+            cp "$APK" dist-android/enjoysing.apk
+            cp $OUT/bundle/*/*.aab dist-android/enjoysing.aab
+          fi
+          ls -la dist-android
 
       - uses: actions/upload-artifact@v4
         with:
           name: enjoysing-android
-          path: |
-            src-tauri/gen/android/app/build/outputs/apk/**/*.apk
-            src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
+          path: dist-android/*
           if-no-files-found: error
 
   ios:

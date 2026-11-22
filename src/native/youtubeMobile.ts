@@ -280,3 +280,26 @@ export function buildEvalCode(output: string, env: Record<string, unknown>): str
   const arg = (v: unknown) => JSON.stringify(typeof v === 'string' ? v : '');
   return `${output}\nreturn process(${arg(env.n)}, ${arg(env.sp)}, ${arg(env.sig)});`;
 }
+
+// ---------------------------------------------------------------- en-têtes HTTP
+/**
+ * En-têtes d'une requête vers YouTube. Sans eux, le module réseau de Tauri envoie de lui-même
+ * « Origin: http://tauri.localhost » et « User-Agent: tauri-plugin-http/… », que YouTube refuse (HTTP 403).
+ * Origin vide = en-tête retiré (fonction « unsafe-headers » du plugin, activée dans Cargo.toml).
+ */
+const TV_USER_AGENT = 'Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version';
+export function youtubeHeaders(url: string, init?: RequestInit): Headers {
+  const headers = new Headers(init?.headers);
+  let host = '';
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return headers;
+  }
+  if (!/(^|\.)(youtube\.com|googlevideo\.com|google\.com|youtube-nocookie\.com)$/.test(host)) return headers;
+  const flux = host.endsWith('googlevideo.com');
+  if (!headers.has('origin')) headers.set('Origin', flux ? '' : 'https://www.youtube.com');
+  if (!flux && !headers.has('referer')) headers.set('Referer', 'https://www.youtube.com/');
+  if (!headers.has('user-agent')) headers.set('User-Agent', headers.get('x-youtube-client-name') === '7' ? TV_USER_AGENT : (globalThis.navigator?.userAgent ?? ''));
+  return headers;
+}

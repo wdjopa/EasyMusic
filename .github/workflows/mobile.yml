@@ -35,7 +35,10 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # le paquet « tools » (installé par défaut) n'existe plus : on n'installe que platform-tools
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: NDK
         run: |
           sdkmanager --install "ndk;${NDK_VERSION}"

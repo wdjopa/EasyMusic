@@ -19,9 +19,9 @@ Si vous avez un serveur Coolify, utilisez `docker-compose.coolify.yml` : Coolify
 
 1. **DNS Cloudflare** : enregistrement **A** `enjoysing` → adresse IP du serveur Coolify, **nuage gris (DNS only)**
    pour que Let's Encrypt puisse délivrer le certificat.
-2. **Accès au dépôt** : Coolify › **Sources** › ajoutez une **GitHub App** ayant accès à `wdjopa/EasyMusic`
+2. **Accès au dépôt** : Coolify › **Sources** › ajoutez une **GitHub App** ayant accès à `wdjopa/enjoysing`
    (nécessaire si le dépôt est privé ; elle permet aussi le déploiement automatique à chaque push).
-3. **Créer la ressource** : un projet › **+ New** › **Private Repository (with GitHub App)** › `EasyMusic` :
+3. **Créer la ressource** : un projet › **+ New** › **Private Repository (with GitHub App)** › `enjoysing` :
    - Branch : `main`
    - Build Pack : **Docker Compose**
    - Base Directory : `/` · Docker Compose Location : `/docker-compose.coolify.yml`
@@ -78,7 +78,7 @@ Dans le tableau de bord Cloudflare :
 ## 4. Installer EnjoySing
 
 ```bash
-git clone https://github.com/wdjopa/EasyMusic.git enjoysing
+git clone https://github.com/wdjopa/enjoysing.git enjoysing
 cd enjoysing
 cp .env.example .env
 nano .env            # collez le jeton du tunnel dans CLOUDFLARE_TUNNEL_TOKEN

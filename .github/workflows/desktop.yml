@@ -93,10 +93,12 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           # une variable vide ferait échouer Tauri : on ne transmet que celles qui sont renseignées
-          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            if [ -n "${!v}" ]; then echo "$v=${!v}" >> "$GITHUB_ENV"; fi
+          # (syntaxe à délimiteur : le certificat base64 peut tenir sur plusieurs lignes)
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID KEYCHAIN_PASSWORD; do
+            if [ -n "${!v}" ]; then printf '%s<<__FIN__\n%s\n__FIN__\n' "$v" "${!v}" >> "$GITHUB_ENV"; fi
           done
           if [ -z "$APPLE_CERTIFICATE" ]; then echo "Pas de certificat Apple : app non signée."; fi
       - name: Signature Windows (si configurée)

@@ -89,7 +89,8 @@ jobs:
     timeout-minutes: 60
     env:
       # le contexte « secrets » n'est pas lisible dans les conditions « if » des étapes
-      HAS_APPLE_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM != '' }}
+      # build signé seulement avec une clé API App Store Connect (profils créés automatiquement)
+      HAS_APPLE_TEAM: ${{ secrets.APPLE_API_KEY != '' && (secrets.APPLE_DEVELOPMENT_TEAM != '' || secrets.APPLE_TEAM_ID != '') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -120,7 +121,7 @@ jobs:
       - name: Build signé (IPA)
         if: env.HAS_APPLE_TEAM == 'true'
         env:
-          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM || secrets.APPLE_TEAM_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}

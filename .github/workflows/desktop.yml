@@ -11,9 +11,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# une compilation lancée à la main ou par une étiquette n'est jamais annulée par un simple envoi de code
 concurrency:
-  group: desktop-${{ github.ref }}
-  cancel-in-progress: true
+  group: desktop-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
   tests:

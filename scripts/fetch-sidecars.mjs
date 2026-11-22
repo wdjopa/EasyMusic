@@ -100,6 +100,9 @@ async function fetchYtDlp() {
   const bin = await download(`${ytRelease}/${asset}`);
   check(bin, expected, asset);
   writeExe(dest, bin);
+  // Mac universel : le binaire yt-dlp_macos l'est déjà ; une copie par architecture pour Tauri
+  if (target === 'universal-apple-darwin')
+    for (const t of ['aarch64-apple-darwin', 'x86_64-apple-darwin']) writeExe(join(outDir, `enjoysing-yt-dlp-${t}`), bin);
   console.log(`✓ yt-dlp (${asset}) -> ${dest}`);
 }
 
@@ -112,7 +115,8 @@ async function fetchDeno() {
     for (const triple of DENO_TRIPLES[target]) {
       const name = `deno-${triple}.zip`;
       const [zip, sum] = await Promise.all([download(`${denoRelease}/${name}`), download(`${denoRelease}/${name}.sha256sum`)]);
-      check(zip, sum.toString().trim().split(/\s+/)[0], name);
+      // format « somme  fichier » (Linux, macOS) ou tableau PowerShell (Windows) : on prend l'empreinte hexadécimale
+      check(zip, sum.toString().match(/\b[0-9a-fA-F]{64}\b/)?.[0], name);
       const dir = join(work, triple);
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, name), zip);
@@ -120,6 +124,8 @@ async function fetchDeno() {
       parts.push(join(dir, `deno${triple.includes('windows') ? '.exe' : ''}`));
     }
     if (parts.length > 1) {
+      // Mac universel : Tauri compile chaque architecture séparément et veut aussi une copie par architecture
+      DENO_TRIPLES[target].forEach((triple, i) => writeExe(join(outDir, `enjoysing-deno-${triple}`), readFileSync(parts[i])));
       const fat = join(work, 'deno-universal');
       execFileSync('lipo', ['-create', '-output', fat, ...parts]);
       parts.splice(0, parts.length, fat);

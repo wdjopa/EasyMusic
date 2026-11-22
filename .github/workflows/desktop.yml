@@ -28,10 +28,10 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-      - name: Paquets système (WebKitGTK)
+      - name: Paquets système (WebKitGTK ; ffmpeg pour les tests du serveur)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf ffmpeg
       - run: npm ci
       - name: Types et tests du front
         run: npx tsc --noEmit && npx tsc --noEmit -p tsconfig.server.json && npx vitest run

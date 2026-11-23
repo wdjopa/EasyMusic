@@ -35,6 +35,8 @@ import { Layout, type PanelId } from './ui/layout';
 import { deleteAudio, loadStoredIds, onStoredChange, storedIds } from './ui/audioStore';
 import { localAudioUrl, songAudio } from './ui/localAudio';
 import { obtainSong } from './ui/obtain';
+import { analyzeTake, headlineOf, renderReview } from './ui/takeReview';
+import { deleteTake, saveTake, takesFor, TakeRecorder, type Take } from './ui/takes';
 import { headline, saveSession, sessionHistory, SessionRecorder, type Passage, type PassageReport } from './ui/session';
 import { startPractice, type PracticeSession } from './ui/practice';
 import { heardChordTones, judgeChord, judgeVoice, SILENCE_RMS, type LiveFrame, type PracticeMode } from './dsp/live';
@@ -1778,6 +1780,10 @@ function renderPracticeMode() {
 $('practice-btn').addEventListener('click', async () => {
   const btn = $('practice-btn');
   if (practice) {
+    const rec = takeRec;
+    takeRec = null;
+    // l'enregistrement s'arrête AVANT le micro (sinon la fin de la prise serait perdue)
+    const blobP = rec && rec.duration > 4 ? rec.stop() : (rec?.stop(), null);
     practice.stop();
     practice = null;
     btn.textContent = '▶ Démarrer';
@@ -1785,7 +1791,8 @@ $('practice-btn').addEventListener('click', async () => {
     $('mic-level-row').hidden = true;
     $('lane-wrap').hidden = true;
     clearCardVerdict();
-    showReport();
+    if (blobP && rec) void finishTake(rec, blobP);
+    else showReport();
     return;
   }
   try {
@@ -1803,6 +1810,16 @@ $('practice-btn').addEventListener('click', async () => {
     $('mic-level-row').hidden = false;
     lane.reset();
     session = new SessionRecorder();
+    // voix : la prise est enregistrée pour le bilan note par note et la réécoute
+    takeRec = null;
+    if (practiceMode !== 'instrument' && typeof MediaRecorder !== 'undefined') {
+      try {
+        takeRec = new TakeRecorder(practice.stream);
+        takeHeard = usingYt() ? 0 : Number.isFinite(state.appliedSemitones) ? state.appliedSemitones : 0;
+      } catch (e) {
+        console.warn('Enregistrement de la voix impossible :', e);
+      }
+    }
     passages = buildPassages();
     renderPracticeMode();
     micSilentSince = performance.now();
@@ -1812,6 +1829,112 @@ $('practice-btn').addEventListener('click', async () => {
     $('pl-score').textContent = `Micro indisponible : ${(err as Error).message}`;
     $('practice-live').hidden = false;
   }
+});
+
+// ---------------------------------------------------------------- prises de chant
+let prevRawMidi: number | null = null;
+let takeRec: TakeRecorder | null = null;
+let takeHeard = 0; // son entendu pendant la prise (demi-tons)
+let closeReview: (() => void) | null = null;
+const takeDialog = $<HTMLDialogElement>('take-dialog');
+takeDialog.addEventListener('close', () => {
+  closeReview?.();
+  closeReview = null;
+});
+takeDialog.addEventListener('click', (e) => {
+  if (e.target === takeDialog) takeDialog.close();
+});
+
+/** Son entendu pendant une prise, pour la réécouter superposé à la voix. */
+async function backingFor(semitones: number, key: string): Promise<string | null> {
+  try {
+    if (!key) return null;
+    if (!key.startsWith('file:')) return await localAudioUrl(key, semitones);
+    if (key !== songKey()) return null;
+    return semitones === 0 ? state.originalUrl : state.shiftedUrl;
+  } catch {
+    return null;
+  }
+}
+
+function lyricAt(t: number): { start: number; text: string } | null {
+  const lines = state.lyrics?.synced;
+  if (!lines?.length) return null;
+  let found: { start: number; text: string } | null = null;
+  for (const l of lines) if (l.time + state.lyricsOffset <= t + 0.2) found = { start: l.time + state.lyricsOffset, text: l.text || '♪' };
+  return found;
+}
+
+function openTake(take: Take, saved: boolean) {
+  closeReview?.();
+  $('take-title').textContent = `🎙️ ${take.title} · ${new Date(take.date).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`;
+  closeReview = renderReview($('take-body'), {
+    take,
+    saved,
+    backingUrl: backingFor(take.semitones, take.songKey),
+    lyricAt,
+    onSave: async () => {
+      await saveTake(take);
+      toast('💾 Prise gardée dans ce navigateur : retrouvez-la dans « Mes prises ».');
+    },
+    onDelete: saved
+      ? async () => {
+          await deleteTake(take.id);
+          takeDialog.close();
+          toast('Prise supprimée.');
+        }
+      : undefined,
+  });
+  if (!takeDialog.open) takeDialog.showModal();
+}
+
+/** Fin de séance avec la voix : analyse de la prise puis bilan. */
+async function finishTake(rec: TakeRecorder, blobP: Promise<Blob>) {
+  $('take-title').textContent = '🎙️ Ma prise';
+  $('take-body').innerHTML = '<p>Analyse de votre voix… <span id="take-progress"></span></p>';
+  takeDialog.showModal();
+  try {
+    const blob = await blobP;
+    if (!lane.notes.length) throw new Error('la mélodie de ce morceau n’a pas pu être estimée : impossible de juger la voix.');
+    const r = await analyzeTake({ blob, timeline: rec.timeline, expected: lane.notes }, (f) => {
+      const el = document.getElementById('take-progress');
+      if (el) el.textContent = `${Math.round(f * 100)} %`;
+    });
+    const take: Take = {
+      id: crypto.randomUUID(),
+      songKey: songKey() || 'inconnu',
+      title: $('song-title').textContent || 'Chanson',
+      date: new Date().toISOString(),
+      blob,
+      timeline: rec.timeline,
+      semitones: takeHeard,
+      range: r.range,
+      summary: r.summary,
+      notes: r.notes,
+      voice: r.voice,
+    };
+    openTake(take, false);
+    showReport(false); // enregistre le bilan des accords (bouton « Bilan »), sans ouvrir sa fenêtre
+  } catch (e) {
+    $('take-body').innerHTML = `<p>⚠️ ${escapeHtml(`Bilan de la voix impossible : ${(e as Error).message}`)}</p>`;
+  }
+}
+
+$('takes-btn').addEventListener('click', async () => {
+  const list = await takesFor(songKey());
+  closeReview?.();
+  closeReview = null;
+  $('take-title').textContent = '🎙️ Mes prises sur ce morceau';
+  $('take-body').innerHTML = list.length
+    ? `<ul class="take-list">${list
+        .map(
+          (t, i) =>
+            `<li><button class="btn" type="button" data-i="${i}">▶</button> <span><strong>${new Date(t.date).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</strong> · ${escapeHtml(headlineOf(t))}${t.semitones ? ` · tonalité ${t.semitones > 0 ? '+' : ''}${t.semitones}` : ''}</span></li>`,
+        )
+        .join('')}</ul>`
+    : '<p class="hint">Aucune prise gardée pour ce morceau. Démarrez le micro en mode 🎤 Voix, chantez, puis arrêtez : le bilan s’ouvre et vous pouvez garder la prise.</p>';
+  $('take-body').querySelectorAll<HTMLButtonElement>('button[data-i]').forEach((b) => (b.onclick = () => openTake(list[+b.dataset.i!], true)));
+  if (!takeDialog.open) takeDialog.showModal();
 });
 
 /** Note de la mélodie attendue à l'instant t (dans la tonalité jouée), si l'analyse l'a estimée. */
@@ -1929,6 +2052,7 @@ function onPracticeFrame(f: LiveFrame) {
       : f.level < SILENCE_RMS
         ? 'silence'
         : '';
+  takeRec?.mark(mediaTime(), isMediaPlaying(), rate);
   if (!state.analysis) return;
   const t = mediaTime() - MIC_LATENCY;
   const lateIdx = segmentAt(t, segs);
@@ -2000,7 +2124,12 @@ function onPracticeFrame(f: LiveFrame) {
   if (practiceMode !== 'instrument') {
     const box = $('pl-voice-box');
     box.classList.remove('ok', 'close', 'wrong');
-    if (!f.pitch) {
+    // anti-bruit : une hauteur n'est retenue que si elle tient deux blocs de suite (≈ 0,25 s) ;
+    // un claquement, une consonne ou un bruit de la pièce ne comptent donc pas
+    const raw = f.pitch?.midi ?? null;
+    const steady = raw !== null && prevRawMidi !== null && Math.abs(raw - prevRawMidi) <= 0.7;
+    prevRawMidi = raw;
+    if (!f.pitch || !steady) {
       // pas de note sur ce bloc : on garde l'affichage précédent un instant
       if (now - lastPitchAt > HOLD_MS) {
         $('pl-note').textContent = '—';
@@ -2336,7 +2465,7 @@ function passageAt(t: number): number {
 }
 const songKey = () => currentSongId ?? (state.file ? `file:${state.file.name}` : '');
 
-function showReport() {
+function showReport(open = true) {
   if (!session || session.empty) return;
   const reports = session.report(passages);
   const totals = session.totals();
@@ -2379,7 +2508,7 @@ function showReport() {
     <ul class="rp-list">${rows || '<li class="hint">Aucun passage assez long pour être évalué.</li>'}</ul>`;
   lastReport = { reports, html };
   $('open-report').hidden = false;
-  openReport();
+  if (open) openReport();
 }
 
 function openReport() {

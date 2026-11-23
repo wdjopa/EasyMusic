@@ -292,8 +292,9 @@
               <button class="pmode" data-pmode="both">🎸+🎤 Les deux</button>
             </div>
             <button class="btn primary" id="practice-btn">▶ Démarrer</button>
+            <button class="btn" id="takes-btn" type="button" title="Réécouter et comparer vos prises de chant">🎙️ Mes prises</button>
           </div>
-          <p class="small practice-tip">🎧 Avec un casque ou des écouteurs : sinon le micro entend aussi la musique.</p>
+          <p class="small practice-tip">🎧 Avec un casque ou des écouteurs : sinon le micro entend aussi la musique. En mode 🎤 Voix, votre voix est enregistrée : à l'arrêt, un bilan note par note et la réécoute avec la musique.</p>
           <div class="mic-level" id="mic-level-row" hidden>
             <span class="small">🎙️ Micro</span>
             <div class="level wide"><div class="level-fill" id="mic-level"></div></div>
@@ -337,6 +338,15 @@
     </div>
 
     <div class="toast" id="toast" role="status" hidden></div>
+
+    <!-- prise de chant : bilan, réécoute, prises gardées -->
+    <dialog class="voice-dialog report-dialog take-dialog" id="take-dialog">
+      <form method="dialog" class="dialog-head">
+        <h2 id="take-title">🎙️ Ma prise</h2>
+        <button class="btn ghost" aria-label="Fermer">✕</button>
+      </form>
+      <div id="take-body"></div>
+    </dialog>
 
     <!-- bilan de séance -->
     <dialog class="voice-dialog report-dialog" id="report-dialog">

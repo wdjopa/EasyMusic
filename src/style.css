@@ -667,3 +667,35 @@ body.dragging-panel .ph-drag { cursor: grabbing; }
 .app-mobile input, .app-mobile select, .app-mobile textarea { font-size: max(16px, 1em); }
 /* pas d'« élastique » qui fait rebondir toute l'interface */
 .app-mobile, .app-mobile body { overscroll-behavior-y: none; }
+
+/* prise de chant */
+.take-dialog { width: min(1000px, calc(100vw - 24px)); }
+.take-head { display: flex; align-items: center; gap: 16px; margin: 4px 0 10px; }
+.take-score { flex: none; width: 84px; height: 84px; border-radius: 50%; display: flex; align-items: baseline; justify-content: center; padding-top: 24px; font-size: 30px; font-weight: 800; color: #fff; background: var(--muted); }
+.take-score small { font-size: 14px; }
+.take-score.good { background: #2f9e5c; }
+.take-score.mid { background: #d9a21b; }
+.take-score.low { background: #d9534f; }
+.take-headline { margin: 0; font-size: 18px; font-weight: 700; }
+.take-advice { margin: 4px 0 0; color: var(--muted); }
+.take-bars { display: flex; height: 26px; border-radius: 8px; overflow: hidden; font-size: 13px; font-weight: 700; color: #fff; background: var(--line); }
+.take-bars .tb { display: grid; place-items: center; min-width: 0; overflow: hidden; white-space: nowrap; }
+.take-bars .ok { background: #2f9e5c; }
+.take-bars .close { background: #d9a21b; }
+.take-bars .high, .take-bars .low { background: #d9534f; }
+.take-bars .low { background: #b8433f; }
+.take-bars .miss { background: #8a857c; }
+.take-legend { color: var(--muted); margin: 6px 0; }
+.take-legend .lg-curve { display: inline-block; width: 18px; height: 3px; border-radius: 2px; background: var(--voice); vertical-align: middle; }
+.take-player { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 10px 0 6px; }
+.take-player input[type=range] { width: 110px; vertical-align: middle; }
+.take-canvas-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.take-canvas-wrap canvas { display: block; cursor: pointer; }
+.take-weak { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.take-weak li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.take-weak li strong { font-weight: 600; }
+.take-weak .small-btn { margin-left: auto; }
+.take-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.take-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.take-list li { display: flex; align-items: center; gap: 10px; }
+.practice-head #takes-btn { margin-left: 4px; }

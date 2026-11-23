@@ -3,6 +3,8 @@ import type { Key } from '../music/theory';
 
 export interface PracticeSession {
   stop(): void;
+  /** Flux du micro (pour enregistrer la voix pendant la séance). */
+  stream: MediaStream;
 }
 
 /**
@@ -32,6 +34,7 @@ export async function startPractice(
     onFrame(analyzeLiveFrame(m === 'voice' ? buf.subarray(buf.length - 4096) : buf, ctx.sampleRate, m, key()));
   }, 120);
   return {
+    stream,
     stop() {
       clearInterval(timer);
       stream.getTracks().forEach((t) => t.stop());

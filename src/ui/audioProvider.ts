@@ -28,8 +28,32 @@ const listeners: (() => void)[] = [];
 /** Branche un fournisseur (le plus récent l'emporte : une app Tauri remplace l'extension). */
 export function registerAudioProvider(p: LocalAudioProvider) {
   if (current && current.priority === 'first' && p.priority === 'fallback') return;
-  current = p;
+  current = dedupe(p);
   listeners.forEach((fn) => fn());
+}
+
+/**
+ * Un seul téléchargement à la fois par vidéo : si l'analyse et la lecture demandent le même son en même
+ * temps, la seconde demande attend le résultat de la première (au lieu d'un second téléchargement concurrent).
+ */
+function dedupe(p: LocalAudioProvider): LocalAudioProvider {
+  const inFlight = new Map<string, { promise: Promise<Blob>; listeners: ((f: number, l: string) => void)[] }>();
+  return {
+    ...p,
+    fetchAudio(videoId, onProgress, signal) {
+      const running = inFlight.get(videoId);
+      if (running) {
+        running.listeners.push(onProgress);
+        return running.promise;
+      }
+      const entry = { promise: null as unknown as Promise<Blob>, listeners: [onProgress] };
+      entry.promise = p
+        .fetchAudio(videoId, (f, l) => entry.listeners.forEach((fn) => fn(f, l)), signal)
+        .finally(() => inFlight.delete(videoId));
+      inFlight.set(videoId, entry);
+      return entry.promise;
+    },
+  };
 }
 
 export function audioProvider(): LocalAudioProvider | null {

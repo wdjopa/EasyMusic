@@ -276,8 +276,11 @@ pub async fn download_audio(
         return Err(DlError::other("Identifiant de vidéo invalide."));
     }
     let mut last: Option<DlError> = None;
+    // dossier propre à CE téléchargement : deux téléchargements simultanés de la même vidéo
+    // ne doivent jamais partager (ni effacer) le même dossier
+    let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     for (i, (label, strategy)) in STRATEGIES.iter().enumerate() {
-        let dir = work_dir.join(format!("{id}-{i}"));
+        let dir = work_dir.join(format!("{id}-{unique}-{i}"));
         let _ = tokio::fs::remove_dir_all(&dir).await;
         tokio::fs::create_dir_all(&dir).await.map_err(|e| DlError::other(e.to_string()))?;
         if i > 0 {

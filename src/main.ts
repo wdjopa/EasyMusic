@@ -613,6 +613,8 @@ let analysisToken = { cancelled: false };
 function openSong(song: Pick<LibrarySong, 'title' | 'analysis' | 'prefs'> & Partial<Pick<LibrarySong, 'id' | 'author' | 'lyrics'>>) {
   $('song-title').textContent = song.title;
   state.karaoke = false;
+  preferLocal = false;
+  stopKaraokeTrack();
   state.lyricsOffset = song.prefs?.lyricsOffset ?? 0;
   void loadLyrics(song.title, song.author ?? '', song.analysis.duration, song.id ?? null, song.lyrics);
   state.analysis = null;
@@ -797,7 +799,7 @@ function showAnalysis(a: AnalysisResult) {
 /** Lecture de la vidéo YouTube d'origine (et non d'une version transposée). */
 /** Vidéo interdite hors de YouTube : on joue alors le son (téléchargé par le serveur) à la place. */
 let ytBlocked = false;
-const usingYt = () => state.source === 'youtube' && !!yt && !ytBlocked && state.appliedSemitones === 0 && !state.karaoke;
+const usingYt = () => state.source === 'youtube' && !!yt && !ytBlocked && state.appliedSemitones === 0 && !preferLocal;
 
 /** Moment où l'utilisateur a demandé la lecture (pour enchaîner sur le son si la vidéo est refusée). */
 let playIntentAt = 0;
@@ -1057,9 +1059,10 @@ async function syncAudio() {
   if (!state.analysis && !state.buffer) return;
   if (target === state.appliedSemitones && !(state.source === 'file' && !player.src)) {
     audioStatus = '';
-    return render();
+    return renderAudioState();
   }
-  const fromYt = usingYt();
+  const fromYt = (usingYt() || switchingFromYt) && !!yt;
+  switchingFromYt = false;
   // le son chargé appartient-il à la chanson ouverte ? Sinon : nouvelle chanson, on part du début, en pause
   const sameSong = fromYt || audioFor === songKey();
   const t = !sameSong ? 0 : fromYt ? yt!.getCurrentTime() : player.currentTime;
@@ -1067,7 +1070,8 @@ async function syncAudio() {
   autoStartAudio = false;
 
   // retour à la vidéo originale (sauf si elle ne peut pas être lue ici)
-  if (state.source === 'youtube' && target === 0 && !ytBlocked && !state.karaoke) {
+  if (state.source === 'youtube' && target === 0 && !ytBlocked && !preferLocal) {
+    stopKaraokeTrack();
     player.pause();
     player.hidden = true;
     state.appliedSemitones = 0;
@@ -1076,18 +1080,18 @@ async function syncAudio() {
       commandYt((p) => (p.unMute(), p.seekTo(t, true)));
       if (wasPlaying) yt.playVideo();
     }
-    return render();
+    return renderAudioState();
   }
 
   audioStatus = 'preparing';
   audioLabel = '';
-  render();
+  renderAudioState();
   try {
     let url: string;
     if (state.source === 'youtube') {
       if (!currentSongId) return;
       // audio gardé dans le navigateur (téléchargé une seule fois), transposé sur place
-      url = await localAudioUrl(state.karaoke ? `${currentSongId}~instru` : currentSongId, target, (label) => {
+      url = await localAudioUrl(currentSongId, target, (label) => {
         if (token !== audioToken) return;
         audioLabel = label;
         document.querySelectorAll<HTMLElement>('.audio-state').forEach((e) => (e.textContent = `⏳ ${label}`));
@@ -1102,6 +1106,9 @@ async function syncAudio() {
       state.shiftedUrl = url = URL.createObjectURL(encodeWav(chans, state.buffer.sampleRate));
     }
     if (token !== audioToken) return; // un autre réglage a été demandé entre-temps
+    // position au moment de la bascule (la vidéo a continué de jouer pendant la préparation)
+    let resumeAt = fromYt ? yt!.getCurrentTime() : t;
+    const switchedAt = performance.now();
     if (fromYt) commandYt((p) => (p.mute(), p.pauseVideo()));
     player.src = url;
     audioFor = songKey();
@@ -1110,8 +1117,12 @@ async function syncAudio() {
       player.addEventListener('loadedmetadata', () => r(), { once: true });
       player.addEventListener('error', () => r(), { once: true });
     });
-    player.currentTime = t;
+    if (fromYt && wasPlaying) resumeAt += ((performance.now() - switchedAt) / 1000) * rate;
+    player.currentTime = resumeAt;
     state.appliedSemitones = target;
+    // karaoké : la piste sans la voix est préparée dans la même tonalité, à la même position
+    if (state.source === 'youtube' && currentSongId && storedIds.has(`${currentSongId}~instru`)) void loadKaraokeTrack(currentSongId, target);
+    else stopKaraokeTrack();
     audioStatus = '';
     audioLabel = '';
     if (wasPlaying)
@@ -1121,7 +1132,7 @@ async function syncAudio() {
     audioStatus = 'error';
     audioError = (err as Error).message;
   }
-  render();
+  renderAudioState();
 }
 
 // ---------------------------------------------------------------- rendu
@@ -1186,13 +1197,119 @@ $('sep-btn').addEventListener('click', async () => {
   }
 });
 
+// Deux pistes jouées ensemble et synchronisées : le son complet (lecteur principal) et la piste sans la voix.
+// Le bouton Karaoké ne fait que passer de l'une à l'autre en fondu : pas de rechargement, pas de saut.
+const karaokePlayer = new Audio();
+karaokePlayer.preload = 'auto';
+karaokePlayer.volume = 0;
+let karaokeFor = '';
+/** Bascule en cours depuis le lecteur YouTube (sa position sert de point de départ). */
+let switchingFromYt = false;
+/** Une fois le karaoké utilisé, on reste sur le son local (sinon chaque bascule rechargerait YouTube). */
+let preferLocal = false;
+
+async function loadKaraokeTrack(id: string, semi: number) {
+  const key = `${id}:${semi}`;
+  if (karaokeFor === key) return syncKaraoke(true);
+  karaokeFor = key;
+  try {
+    const url = await localAudioUrl(`${id}~instru`, semi);
+    if (karaokeFor !== key) return;
+    karaokePlayer.src = url;
+    karaokePlayer.preservesPitch = true;
+    await new Promise<void>((r) => {
+      karaokePlayer.addEventListener('loadedmetadata', () => r(), { once: true });
+      karaokePlayer.addEventListener('error', () => r(), { once: true });
+    });
+    if (karaokeFor !== key) return;
+    syncKaraoke(true);
+    applyKaraokeVolumes(false);
+  } catch (e) {
+    karaokeFor = '';
+    console.warn('Piste karaoké indisponible :', e);
+  }
+}
+
+function stopKaraokeTrack() {
+  karaokeFor = '';
+  karaokePlayer.pause();
+  karaokePlayer.removeAttribute('src');
+  karaokePlayer.load();
+  player.volume = 1;
+}
+
+/** Garde la piste karaoké calée sur le lecteur principal (position, lecture, vitesse). */
+function syncKaraoke(force = false) {
+  if (!karaokeFor || !karaokePlayer.src) return;
+  if (karaokePlayer.playbackRate !== player.playbackRate) karaokePlayer.playbackRate = player.playbackRate;
+  if (force || Math.abs(karaokePlayer.currentTime - player.currentTime) > 0.08) karaokePlayer.currentTime = player.currentTime;
+  if (player.paused && !karaokePlayer.paused) karaokePlayer.pause();
+  else if (!player.paused && karaokePlayer.paused) void karaokePlayer.play().catch(() => {});
+}
+for (const ev of ['play', 'pause', 'seeked', 'ratechange'] as const) player.addEventListener(ev, () => syncKaraoke(true));
+
+let fadeTimer = 0;
+/** Fondu (≈ 150 ms) entre le son complet et la piste sans la voix. */
+function applyKaraokeVolumes(fade = true) {
+  window.clearInterval(fadeTimer);
+  const ready = !!karaokeFor && !!karaokePlayer.src;
+  const to = { main: state.karaoke && ready ? 0 : 1, kara: state.karaoke && ready ? 1 : 0 };
+  if (!fade) {
+    player.volume = to.main;
+    karaokePlayer.volume = to.kara;
+    return;
+  }
+  const from = { main: player.volume, kara: karaokePlayer.volume };
+  let k = 0;
+  fadeTimer = window.setInterval(() => {
+    k = Math.min(1, k + 0.2);
+    player.volume = from.main + (to.main - from.main) * k;
+    karaokePlayer.volume = from.kara + (to.kara - from.kara) * k;
+    if (k >= 1) window.clearInterval(fadeTimer);
+  }, 30);
+}
+
 $('karaoke-btn').addEventListener('click', () => {
   state.karaoke = !state.karaoke;
-  state.appliedSemitones = Number.NaN; // recharge le son (piste instrumentale ou son complet)
-  scheduleAudio(0);
+  const wasYt = usingYt();
+  const playing = isMediaPlaying(); // relevé AVANT de quitter YouTube
+  const local = !wasYt && !!player.src && karaokeFor === `${currentSongId}:${state.appliedSemitones}`;
+  preferLocal = true;
+  if (local) applyKaraokeVolumes();
+  else {
+    // première fois : on passe du son de YouTube au son local (une seule fois, à la même position)
+    switchingFromYt = wasYt;
+    state.appliedSemitones = Number.NaN;
+    autoStartAudio = playing;
+    scheduleAudio(0);
+  }
   updateSepUi();
   toast(state.karaoke ? '🎤 Karaoké : la voix originale est retirée.' : '🎵 Son complet, avec la voix originale.');
 });
+
+/** Ligne d'état du son (préparation, erreur, conseil) : mise à jour légère, sans redessiner les accords. */
+function renderAudioState() {
+  const a = state.analysis;
+  const s = state.semitones;
+  const sign = (n: number) => (n > 0 ? `+${n}` : String(n));
+  let st = '';
+  if (a || state.buffer) {
+    // le message décrit ce qui joue réellement, pas seulement ce qui est demandé
+    const pending = shift() !== state.appliedSemitones && audioStatus !== 'error';
+    if ((audioStatus === 'preparing' || pending) && audioLabel) st = `⏳ ${audioLabel}`;
+    else if ((audioStatus === 'preparing' || pending) && ytBlocked && !shift()) st = '⏳ Préparation du son…';
+    else if (audioStatus === 'preparing' || pending)
+      st = state.appliedSemitones
+        ? '⏳ Préparation du son… (le son joue encore dans la tonalité précédente)'
+        : '⏳ Préparation du son transposé… (le son joue encore dans la tonalité originale)';
+    else if (audioStatus === 'error') st = `⚠️ Son transposé indisponible : ${audioError}`;
+    // le bandeau au-dessus de l'accord dit déjà quelle tonalité est jouée : ici, seulement les messages utiles
+    else if (state.mode === 'original' && s) st = `💡 Pour votre voix : ${sign(s)} demi-ton${Math.abs(s) > 1 ? 's' : ''} → choisissez « 🎤 Ma tonalité ».`;
+    else if (state.mode === 'voice' && state.octave) st = `🎤 Chantez une octave plus ${state.octave < 0 ? 'bas' : 'haut'} que la voix originale.`;
+  }
+  document.querySelectorAll<HTMLElement>('.audio-state').forEach((e) => (e.textContent = st));
+  updateSepUi();
+}
 
 function render() {
   updateSepUi();
@@ -1254,22 +1371,7 @@ function render() {
   document.querySelectorAll<HTMLElement>('.mode-key-voice').forEach(
     (e) => (e.textContent = a ? `${keyName(transposeKey(a.key, s), f).split(' (')[0]}${s ? ` (${sign(s)})` : ''}` : s ? sign(s) : ''),
   );
-  let st = '';
-  if (a || state.buffer) {
-    // le message décrit ce qui joue réellement, pas seulement ce qui est demandé
-    const pending = shift() !== state.appliedSemitones && audioStatus !== 'error';
-    if ((audioStatus === 'preparing' || pending) && audioLabel) st = `⏳ ${audioLabel}`;
-    else if ((audioStatus === 'preparing' || pending) && ytBlocked && !shift()) st = '⏳ Préparation du son…';
-    else if (audioStatus === 'preparing' || pending)
-      st = state.appliedSemitones
-        ? '⏳ Préparation du son… (le son joue encore dans la tonalité précédente)'
-        : '⏳ Préparation du son transposé… (le son joue encore dans la tonalité originale)';
-    else if (audioStatus === 'error') st = `⚠️ Son transposé indisponible : ${audioError}`;
-    // le bandeau au-dessus de l'accord dit déjà quelle tonalité est jouée : ici, seulement les messages utiles
-    else if (state.mode === 'original' && s) st = `💡 Pour votre voix : ${sign(s)} demi-ton${Math.abs(s) > 1 ? 's' : ''} → choisissez « 🎤 Ma tonalité ».`;
-    else if (state.mode === 'voice' && state.octave) st = `🎤 Chantez une octave plus ${state.octave < 0 ? 'bas' : 'haut'} que la voix originale.`;
-  }
-  document.querySelectorAll<HTMLElement>('.audio-state').forEach((e) => (e.textContent = st));
+  renderAudioState();
 
   // rappel bien visible au-dessus des accords : dans quelle tonalité sont-ils ?
   const banner = $('key-banner');
@@ -1480,19 +1582,23 @@ void fetchFeatures().then((f) => {
 let lyricsMeta: { title: string; author: string; songId: string | null } = { title: '', author: '', songId: null };
 
 /** Transcrit les paroles par IA (Whisper) : pour les chansons YouTube absentes de la base de paroles. */
+/** Transcriptions par IA en cours, par morceau : elles continuent même si l'on passe à un autre morceau. */
+const transcriptions = new Map<string, { promise: Promise<Lyrics>; progress: number; label: string }>();
+
 async function transcribeCurrent() {
   const { songId, title, author } = lyricsMeta;
   if (!songId || !whisperOn) return;
   const token = ++lyricsToken;
   lyricsStatus = 'transcribing';
   transcribeError = '';
-  transcribeLabel = 'Préparation…';
-  transcribeProgress = 0;
-  setStep('lyrics', 'active', 'transcription par IA…');
-  render();
-  try {
-    const l = await transcribeLyrics(songId, { title, author }, (f, label) => {
-      if (token !== lyricsToken) return;
+  let job = transcriptions.get(songId);
+  if (!job) {
+    const entry = { promise: null as unknown as Promise<Lyrics>, progress: 0, label: 'Préparation…' };
+    entry.promise = transcribeLyrics(songId, { title, author }, (f, label) => {
+      entry.progress = f;
+      entry.label = label;
+      // progression affichée seulement si ce morceau est toujours ouvert
+      if (lyricsMeta.songId !== songId || lyricsStatus !== 'transcribing') return;
       transcribeProgress = f;
       transcribeLabel = label;
       const bar = document.querySelector<HTMLElement>('#transcribe-bar');
@@ -1500,14 +1606,28 @@ async function transcribeCurrent() {
         bar.style.width = `${Math.round(f * 100)}%`;
         $('transcribe-label').textContent = label;
       }
-    });
-    if (token !== lyricsToken) return;
+    })
+      .then((l) => {
+        saveLyrics(songId, l); // gardées avec SON morceau, même si l'on écoute autre chose
+        if (lyricsMeta.songId !== songId) toast(`🤖 Paroles de « ${escapeHtml(title)} » prêtes (transcrites par IA).`);
+        return l;
+      })
+      .finally(() => transcriptions.delete(songId));
+    transcriptions.set(songId, entry);
+    job = entry;
+  }
+  transcribeProgress = job.progress;
+  transcribeLabel = job.label;
+  setStep('lyrics', 'active', 'transcription par IA…');
+  render();
+  try {
+    const l = await job.promise;
+    if (token !== lyricsToken || lyricsMeta.songId !== songId) return;
     state.lyrics = l;
     lyricsStatus = 'idle';
-    saveLyrics(songId, l);
     setStep('lyrics', 'done', 'transcrites par IA');
   } catch (e) {
-    if (token !== lyricsToken) return;
+    if (token !== lyricsToken || lyricsMeta.songId !== songId) return;
     lyricsStatus = state.lyrics ? 'idle' : 'none';
     transcribeError = (e as Error).message;
     setStep('lyrics', 'done', 'transcription impossible');
@@ -1519,6 +1639,8 @@ async function transcribeCurrent() {
 async function loadLyrics(title: string, author: string, duration: number, songId: string | null, known?: Lyrics | null) {
   lyricsMeta = { title, author, songId: state.source === 'youtube' ? songId : null };
   transcribeError = '';
+  // retour sur un morceau dont les paroles sont encore en cours de transcription : on s'y raccroche
+  if (songId && !known && transcriptions.has(songId)) return void transcribeCurrent();
   const token = ++lyricsToken;
   if (known !== undefined) {
     state.lyrics = known;
@@ -2698,6 +2820,7 @@ function tickOnce() {
   tickMini();
   updateLyrics();
   updateScore();
+  syncKaraoke();
   if (followingAudio() && !player.paused && performance.now() - ytCommandAt > 1500) {
     const drift = yt!.getCurrentTime() - player.currentTime;
     if (Math.abs(drift) > 0.5) commandYt((p) => p.seekTo(player.currentTime, true));

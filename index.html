@@ -297,6 +297,15 @@
             <button class="btn primary" id="practice-btn">▶ Démarrer</button>
             <button class="btn" id="takes-btn" type="button" title="Réécouter et comparer vos prises de chant">🎙️ Mes prises</button>
           </div>
+          <div class="livemic" id="livemic">
+            <button class="btn" id="livemic-btn" type="button" aria-pressed="false" title="Votre voix ressort en direct par l'enceinte, avec la musique">🎙️ Micro sur le haut-parleur</button>
+            <div class="livemic-controls" id="livemic-controls" hidden>
+              <label class="small">Voix <input type="range" id="livemic-vol" min="0" max="1.5" step="0.05" value="0.8" /></label>
+              <label class="small">Réverbération <input type="range" id="livemic-rev" min="0" max="0.8" step="0.05" value="0.25" /></label>
+              <div class="level"><div class="level-fill" id="livemic-level"></div></div>
+            </div>
+            <p class="small livemic-info" id="livemic-info" hidden></p>
+          </div>
           <p class="small practice-tip">🎧 Avec un casque ou des écouteurs : sinon le micro entend aussi la musique. En mode 🎤 Voix, votre voix est enregistrée : à l'arrêt, un bilan note par note et la réécoute avec la musique.</p>
           <div class="mic-level" id="mic-level-row" hidden>
             <span class="small">🎙️ Micro</span>

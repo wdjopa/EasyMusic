@@ -37,6 +37,7 @@ import { localAudioUrl, songAudio } from './ui/localAudio';
 import { obtainSong } from './ui/obtain';
 import { analyzeTake, headlineOf, renderReview } from './ui/takeReview';
 import { deleteTake, saveTake, takesFor, TakeRecorder, type Take } from './ui/takes';
+import { LiveMic } from './ui/liveMic';
 import { headline, saveSession, sessionHistory, SessionRecorder, type Passage, type PassageReport } from './ui/session';
 import { startPractice, type PracticeSession } from './ui/practice';
 import { heardChordTones, judgeChord, judgeVoice, SILENCE_RMS, type LiveFrame, type PracticeMode } from './dsp/live';
@@ -2022,6 +2023,54 @@ $('practice-btn').addEventListener('click', async () => {
     $('practice-live').hidden = false;
   }
 });
+
+// ---------------------------------------------------------------- micro sur le haut-parleur (karaoké en direct)
+let liveMic: LiveMic | null = null;
+let liveMicTimer = 0;
+$('livemic-btn').addEventListener('click', async () => {
+  const btn = $('livemic-btn');
+  const info = $('livemic-info');
+  if (liveMic) {
+    liveMic.stop();
+    liveMic = null;
+    window.clearInterval(liveMicTimer);
+    btn.classList.remove('recording');
+    btn.setAttribute('aria-pressed', 'false');
+    btn.textContent = '🎙️ Micro sur le haut-parleur';
+    $('livemic-controls').hidden = true;
+    info.hidden = true;
+    return;
+  }
+  try {
+    liveMic = await LiveMic.start();
+  } catch (e) {
+    info.hidden = false;
+    info.textContent = `⚠️ Micro indisponible : ${(e as Error).message}`;
+    return;
+  }
+  liveMic.setVolume(+$<HTMLInputElement>('livemic-vol').value);
+  liveMic.setReverb(+$<HTMLInputElement>('livemic-rev').value);
+  btn.classList.add('recording');
+  btn.setAttribute('aria-pressed', 'true');
+  btn.textContent = '⏹ Couper le micro';
+  $('livemic-controls').hidden = false;
+  liveMicTimer = window.setInterval(() => {
+    if (liveMic) $('livemic-level').style.width = `${Math.round(liveMic.level() * 100)}%`;
+  }, 80);
+  const i = await liveMic.info();
+  info.hidden = false;
+  info.textContent = [
+    i.output ? `Sortie : ${i.output}.` : '',
+    i.latencyMs !== null ? `Retard estimé : ${i.latencyMs} ms.` : '',
+    i.wireless
+      ? '⚠️ Sortie sans fil (Bluetooth, AirPlay) : la voix revient avec un retard gênant pour chanter. Préférez une enceinte branchée en filaire.'
+      : '🔊 Éloignez le micro de l’enceinte et montez le volume progressivement pour éviter le sifflement (effet Larsen).',
+  ]
+    .filter(Boolean)
+    .join(' ');
+});
+$<HTMLInputElement>('livemic-vol').addEventListener('input', (e) => liveMic?.setVolume(+(e.target as HTMLInputElement).value));
+$<HTMLInputElement>('livemic-rev').addEventListener('input', (e) => liveMic?.setReverb(+(e.target as HTMLInputElement).value));
 
 // ---------------------------------------------------------------- prises de chant
 let prevRawMidi: number | null = null;

@@ -699,3 +699,11 @@ body.dragging-panel .ph-drag { cursor: grabbing; }
 .take-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .take-list li { display: flex; align-items: center; gap: 10px; }
 .practice-head #takes-btn { margin-left: 4px; }
+
+/* micro sur le haut-parleur */
+.livemic { display: grid; gap: 8px; margin: 10px 0 4px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; }
+.livemic #livemic-btn { justify-self: start; }
+.livemic-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.livemic-controls input[type=range] { width: 120px; vertical-align: middle; }
+.livemic-controls .level { flex: 1; min-width: 80px; }
+.livemic-info { margin: 0; color: var(--muted); }

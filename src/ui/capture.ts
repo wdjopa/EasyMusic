@@ -1,6 +1,8 @@
 // Écoute de l'audio de l'onglet (partage d'onglet) pour analyser une vidéo lue dans le lecteur intégré.
 
 export function tabCaptureSupported(): boolean {
+  // pas dans les apps (Tauri) : la vue web n'y capture pas le son d'un onglet, et l'app télécharge elle-même
+  if ('__TAURI_INTERNALS__' in window) return false;
   return !!navigator.mediaDevices?.getDisplayMedia && !/Mobi|Android/i.test(navigator.userAgent);
 }
 

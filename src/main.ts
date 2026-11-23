@@ -81,8 +81,8 @@ const state = {
   currentIdx: -1,
   shiftedUrl: null as string | null,
   originalUrl: null as string | null,
-  /** Karaoké : la musique sans la voix originale (piste séparée). */
-  karaoke: false,
+  /** Son joué : complet, sans la voix (karaoké) ou voix seule (pistes séparées). */
+  stem: 'full' as 'full' | 'instru' | 'voix',
 };
 
 function loadMode(): 'original' | 'voice' {
@@ -613,7 +613,7 @@ let analysisToken = { cancelled: false };
 /** Affiche une chanson et restaure les réglages enregistrés (transposition, capo…). */
 function openSong(song: Pick<LibrarySong, 'title' | 'analysis' | 'prefs'> & Partial<Pick<LibrarySong, 'id' | 'author' | 'lyrics'>>) {
   $('song-title').textContent = song.title;
-  state.karaoke = false;
+  state.stem = 'full';
   preferLocal = false;
   stopKaraokeTrack();
   state.lyricsOffset = song.prefs?.lyricsOffset ?? 0;
@@ -1122,7 +1122,7 @@ async function syncAudio() {
     player.currentTime = resumeAt;
     state.appliedSemitones = target;
     // karaoké : la piste sans la voix est préparée dans la même tonalité, à la même position
-    if (state.source === 'youtube' && currentSongId && storedIds.has(`${currentSongId}~instru`)) void loadKaraokeTrack(currentSongId, target);
+    if (state.source === 'youtube' && currentSongId && storedIds.has(`${currentSongId}~instru`)) void loadKaraokeTrack(currentSongId, target, stemTrack());
     else stopKaraokeTrack();
     audioStatus = '';
     audioLabel = '';
@@ -1155,10 +1155,15 @@ function updateSepUi() {
   const youtube = state.source === 'youtube' && !!id && !!state.analysis;
   $('sep-btn').hidden = !youtube || !separationOn || sepRunning || !!state.analysis?.separated;
   const hasStems = youtube && storedIds.has(`${id}~instru`);
-  $('karaoke-btn').hidden = !hasStems;
-  $('karaoke-btn').classList.toggle('active', state.karaoke);
-  $('karaoke-btn').setAttribute('aria-pressed', String(state.karaoke));
-  if (!hasStems && state.karaoke) state.karaoke = false;
+  $('stem-modes').hidden = !hasStems;
+  if (!hasStems && state.stem !== 'full') state.stem = 'full';
+  document.querySelectorAll<HTMLButtonElement>('#stem-modes [data-stem]').forEach((b) => {
+    const on = b.dataset.stem === state.stem;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+    // la voix seule n'existe que pour les séparations récentes (piste gardée)
+    if (b.dataset.stem === 'voix') b.hidden = !storedIds.has(`${id}~voix`);
+  });
 }
 onStoredChange(updateSepUi);
 
@@ -1189,7 +1194,7 @@ $('sep-btn').addEventListener('click', async () => {
       refreshCatalogue();
     }
     status.textContent = '';
-    toast('🎚️ Voix et instruments séparés : mélodie et accords recalculés. Essayez le mode 🎤 Karaoké.');
+    toast('🎚️ Voix et instruments séparés : mélodie et accords recalculés. Choisissez le son : complet, sans la voix ou voix seule.');
   } catch (e) {
     status.textContent = `⚠️ ${(e as Error).message}`;
   } finally {
@@ -1209,12 +1214,15 @@ let switchingFromYt = false;
 /** Une fois le karaoké utilisé, on reste sur le son local (sinon chaque bascule rechargerait YouTube). */
 let preferLocal = false;
 
-async function loadKaraokeTrack(id: string, semi: number) {
-  const key = `${id}:${semi}`;
+/** Piste séparée à jouer à côté du son complet : la voix seule si demandée, sinon les instruments. */
+const stemTrack = (): 'instru' | 'voix' => (state.stem === 'voix' ? 'voix' : 'instru');
+
+async function loadKaraokeTrack(id: string, semi: number, track: 'instru' | 'voix', fade = false) {
+  const key = `${id}:${semi}:${track}`;
   if (karaokeFor === key) return syncKaraoke(true);
   karaokeFor = key;
   try {
-    const url = await localAudioUrl(`${id}~instru`, semi);
+    const url = await localAudioUrl(`${id}~${track}`, semi);
     if (karaokeFor !== key) return;
     karaokePlayer.src = url;
     karaokePlayer.preservesPitch = true;
@@ -1224,7 +1232,7 @@ async function loadKaraokeTrack(id: string, semi: number) {
     });
     if (karaokeFor !== key) return;
     syncKaraoke(true);
-    applyKaraokeVolumes(false);
+    applyKaraokeVolumes(fade);
   } catch (e) {
     karaokeFor = '';
     console.warn('Piste karaoké indisponible :', e);
@@ -1254,7 +1262,8 @@ let fadeTimer = 0;
 function applyKaraokeVolumes(fade = true) {
   window.clearInterval(fadeTimer);
   const ready = !!karaokeFor && !!karaokePlayer.src;
-  const to = { main: state.karaoke && ready ? 0 : 1, kara: state.karaoke && ready ? 1 : 0 };
+  const on = state.stem !== 'full' && ready;
+  const to = { main: on ? 0 : 1, kara: on ? 1 : 0 };
   if (!fade) {
     player.volume = to.main;
     karaokePlayer.volume = to.kara;
@@ -1270,23 +1279,35 @@ function applyKaraokeVolumes(fade = true) {
   }, 30);
 }
 
-$('karaoke-btn').addEventListener('click', () => {
-  state.karaoke = !state.karaoke;
-  const wasYt = usingYt();
-  const playing = isMediaPlaying(); // relevé AVANT de quitter YouTube
-  const local = !wasYt && !!player.src && karaokeFor === `${currentSongId}:${state.appliedSemitones}`;
-  preferLocal = true;
-  if (local) applyKaraokeVolumes();
-  else {
-    // première fois : on passe du son de YouTube au son local (une seule fois, à la même position)
-    switchingFromYt = wasYt;
-    state.appliedSemitones = Number.NaN;
-    autoStartAudio = playing;
-    scheduleAudio(0);
-  }
-  updateSepUi();
-  toast(state.karaoke ? '🎤 Karaoké : la voix originale est retirée.' : '🎵 Son complet, avec la voix originale.');
-});
+const STEM_TOAST = {
+  full: '🎵 Son complet.',
+  instru: '🎤 Karaoké : la voix originale est retirée.',
+  voix: '🗣️ Voix seule : les instruments sont retirés.',
+} as const;
+document.querySelectorAll<HTMLButtonElement>('#stem-modes [data-stem]').forEach((btn) =>
+  btn.addEventListener('click', () => {
+    const next = btn.dataset.stem as 'full' | 'instru' | 'voix';
+    if (next === state.stem) return;
+    state.stem = next;
+    const wasYt = usingYt();
+    const playing = isMediaPlaying(); // relevé AVANT de quitter YouTube
+    const id = currentSongId;
+    preferLocal = true;
+    if (!wasYt && player.src && id && Number.isFinite(state.appliedSemitones)) {
+      // son local déjà en place : fondu, ou chargement de l'autre piste séparée puis fondu
+      if (next === 'full' || karaokeFor === `${id}:${state.appliedSemitones}:${next}`) applyKaraokeVolumes();
+      else void loadKaraokeTrack(id, state.appliedSemitones, next, true);
+    } else {
+      // première fois : on passe du son de YouTube au son local (une seule fois, à la même position)
+      switchingFromYt = wasYt;
+      state.appliedSemitones = Number.NaN;
+      autoStartAudio = playing;
+      scheduleAudio(0);
+    }
+    updateSepUi();
+    toast(STEM_TOAST[next]);
+  }),
+);
 
 /** Ligne d'état du son (préparation, erreur, conseil) : mise à jour légère, sans redessiner les accords. */
 function renderAudioState() {
@@ -2605,7 +2626,7 @@ let rate = 1;
 function setRate(r: number) {
   rate = r;
   applyRate();
-  document.querySelectorAll<HTMLElement>('.sp').forEach((b) => b.classList.toggle('active', Number(b.dataset.rate) === r));
+  document.querySelectorAll<HTMLElement>('.sp[data-rate]').forEach((b) => b.classList.toggle('active', Number(b.dataset.rate) === r));
 }
 /** Ralentit sans changer la hauteur des notes (son du navigateur) ; YouTube a son propre réglage. */
 function applyRate() {
@@ -2614,7 +2635,7 @@ function applyRate() {
   player.preservesPitch = true;
   yt?.setPlaybackRate?.(rate);
 }
-document.querySelectorAll<HTMLButtonElement>('.sp').forEach((b) => (b.onclick = () => setRate(Number(b.dataset.rate))));
+document.querySelectorAll<HTMLButtonElement>('.sp[data-rate]').forEach((b) => (b.onclick = () => setRate(Number(b.dataset.rate))));
 // un nouveau son chargé repart à la vitesse normale : on réapplique la vitesse choisie
 player.addEventListener('loadedmetadata', applyRate);
 

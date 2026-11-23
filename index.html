@@ -142,7 +142,11 @@
             <span class="small loop-info" id="loop-info"></span>
             <button class="btn small-btn ghost" id="open-report" hidden>📊 Bilan</button>
             <button class="btn small-btn" id="sep-btn" type="button" hidden title="Isole la voix des instruments (IA, sur le serveur, 1 à 2 min) : mélodie et accords plus justes, et mode karaoké">🎚️ Séparer voix / instruments</button>
-            <button class="btn small-btn" id="karaoke-btn" type="button" hidden aria-pressed="false" title="Musique sans la voix originale, pour chanter dessus (dans la tonalité choisie)">🎤 Karaoké</button>
+            <div class="stem-modes" id="stem-modes" role="group" aria-label="Son joué" hidden>
+              <button class="sp active" type="button" data-stem="full" aria-pressed="true">🎵 Complet</button>
+              <button class="sp" type="button" data-stem="instru" aria-pressed="false" title="Musique sans la voix originale, pour chanter dessus">🎤 Sans la voix</button>
+              <button class="sp" type="button" data-stem="voix" aria-pressed="false" title="La voix seule, sans les instruments, pour apprendre la mélodie">🗣️ Voix seule</button>
+            </div>
             <span class="small" id="sep-state"></span>
           </div>
         <!-- chargement par étapes -->

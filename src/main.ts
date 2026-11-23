@@ -261,6 +261,7 @@ function showSheetView(view: string) {
     /* ignore */
   }
   $('note-names-box').hidden = view !== 'score';
+  fitSheetSoon();
   if (view === 'score' && scoreDirty) void renderScore();
 }
 document.querySelectorAll<HTMLButtonElement>('.sheet .tab').forEach((t) => (t.onclick = () => showSheetView(t.dataset.view!)));
@@ -1293,7 +1294,49 @@ function renderTimeline() {
     if (result?.total) applyResult(el, result);
     tl.append(el);
   });
+  fitSheetSoon();
 }
+
+/**
+ * Hauteur de la zone qui défile dans la carte Partition : tout l'écran disponible sous ses onglets
+ * (la carte tient alors entière à l'écran), mais jamais moins que 3 lignes de paroles,
+ * 2 lignes de portée ou 2 lignes de grille.
+ */
+const SHEET_BOXES: [id: string, item: string, rows: number][] = [
+  ['lyrics', '.lyric', 3],
+  ['score', '.score-sys', 2],
+  ['timeline', '.chip', 2],
+];
+function fitSheet() {
+  const appbar = document.querySelector<HTMLElement>('.appbar');
+  const barH = appbar && getComputedStyle(appbar).position !== 'static' ? appbar.getBoundingClientRect().height : 0;
+  for (const [id, item, rows] of SHEET_BOXES) {
+    const box = document.getElementById(id);
+    const panel = box?.closest<HTMLElement>('.panel');
+    if (!box || !panel || box.closest<HTMLElement>('.view')?.hidden || panel.classList.contains('collapsed')) continue;
+    // espace pris dans la carte au-dessus de la zone (titre, onglets, réglages) + marges
+    const above = box.getBoundingClientRect().top - panel.getBoundingClientRect().top;
+    // la barre « accord en cours » fixée en bas de l'écran cache le bas : sur téléphone elle apparaît
+    // dès qu'on fait défiler, on lui garde donc sa place (sans faire varier la hauteur pendant le défilement)
+    const mini = document.getElementById('mini-now');
+    const miniH = mini && !mini.hidden ? mini.getBoundingClientRect().height + 8 : window.innerWidth < 900 ? 80 : 0;
+    const avail = window.innerHeight - barH - miniH - above - 24;
+    // hauteur des N premières lignes (les accords de la grille se rangent sur plusieurs par ligne)
+    const boxTop = box.getBoundingClientRect().top - box.scrollTop;
+    const tops = [...new Set([...box.querySelectorAll<HTMLElement>(item)].map((el) => Math.round(el.getBoundingClientRect().top - boxTop)))].sort((a, b) => a - b);
+    const pad = parseFloat(getComputedStyle(box).paddingBottom) + 4;
+    const min = tops.length > rows ? tops[rows] + pad : tops.length ? box.scrollHeight : 0;
+    box.style.maxHeight = `${Math.round(Math.max(avail, min, 120))}px`;
+  }
+}
+// déclarée comme fonction (et non constante) : appelée dès le démarrage, avant cette ligne
+function fitSheetSoon() {
+  const w = window as Window & { __fitTimer?: number };
+  window.clearTimeout(w.__fitTimer);
+  w.__fitTimer = window.setTimeout(fitSheet, 50);
+}
+window.addEventListener('resize', fitSheetSoon);
+window.visualViewport?.addEventListener('resize', fitSheetSoon);
 
 function renderDiagrams() {
   const a = state.analysis;
@@ -1568,6 +1611,7 @@ function renderLyrics() {
     .join('');
   box.querySelectorAll<HTMLElement>('.lyric').forEach((el) => (el.onclick = () => mediaSeek(Math.max(0, sheet[+el.dataset.i!].start) + 0.01)));
   wire();
+  fitSheetSoon();
 }
 
 let lyricLine = -1;
@@ -1659,6 +1703,7 @@ async function renderScore() {
     });
   });
   score = s;
+  fitSheetSoon();
   box.querySelectorAll<HTMLElement>('.score-sys').forEach((el) => {
     el.onclick = (e) => {
       const sys = s.systems[+el.dataset.i!];
@@ -2388,7 +2433,10 @@ const layout = new Layout($('workspace'), {
   onMove: (id: PanelId) => {
     if (id === 'video') void remountYouTube();
   },
-  onChange: () => updateMiniNow(),
+  onChange: () => {
+    updateMiniNow();
+    fitSheetSoon();
+  },
 });
 
 async function remountYouTube() {

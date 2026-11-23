@@ -311,7 +311,14 @@ const NETWORK_ERROR = /error sending request|connection (?:closed|reset|refused)
  * Réessaie une requête qui échoue pour une raison RÉSEAU (téléphone qui passe du Wi-Fi à la 4G, mise en veille,
  * réseau lent) : 3 essais espacés. Une vraie réponse de YouTube (même une erreur HTTP) n'est pas réessayée ici.
  */
-export async function withNetworkRetry<T>(run: () => Promise<T>, url: string, tries = 3, wait = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<T> {
+export async function withNetworkRetry<T>(
+  run: () => Promise<T>,
+  url: string,
+  tries = 3,
+  wait = (ms: number) => new Promise((r) => setTimeout(r, ms)),
+  /** Diagnostic détaillé (DNS, TLS, IPv6…) ajouté au message si le réseau reste en échec. */
+  diagnose?: (url: string) => Promise<string>,
+): Promise<T> {
   for (let i = 0; ; i++) {
     try {
       return await run();
@@ -326,7 +333,10 @@ export async function withNetworkRetry<T>(run: () => Promise<T>, url: string, tr
         } catch {
           /* adresse brute */
         }
-        throw new Error(`Connexion à ${host} impossible depuis le téléphone (réseau coupé ou instable). Vérifiez la connexion Internet et réessayez.`);
+        const detail = diagnose ? await diagnose(url).catch(() => '') : '';
+        throw new Error(
+          `Connexion à ${host} impossible depuis le téléphone (réseau coupé ou instable). Vérifiez la connexion Internet et réessayez.${detail ? ` [diagnostic : ${detail}]` : ''}`,
+        );
       }
       await wait(800 * (i + 1));
     }

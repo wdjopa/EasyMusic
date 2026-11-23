@@ -10,6 +10,9 @@ pub mod ytdlp;
 
 use tauri::webview::{PermissionKind, PermissionResponse};
 
+#[cfg(mobile)]
+mod netdiag;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // opener : liens externes (YouTube…) ouverts dans le navigateur de l'utilisateur
@@ -26,7 +29,9 @@ pub fn run() {
     let builder = desktop::setup(builder);
     // mobile : fetch par Rust pour récupérer l'audio YouTube depuis le téléphone (src/native/mobile.ts)
     #[cfg(mobile)]
-    let builder = builder.plugin(tauri_plugin_http::init());
+    let builder = builder
+        .plugin(tauri_plugin_http::init())
+        .invoke_handler(tauri::generate_handler![netdiag::diagnostic_reseau]);
     builder
         .run(tauri::generate_context!())
         .expect("erreur au lancement d'EnjoySing");

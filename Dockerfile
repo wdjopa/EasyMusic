@@ -30,8 +30,10 @@ RUN apt-get update \
 # Séparation voix / instruments (Demucs, version processeur de PyTorch : ~1 Go). WITH_DEMUCS=0 pour s'en passer.
 ARG WITH_DEMUCS=1
 RUN if [ "$WITH_DEMUCS" = "1" ]; then \
-      pip3 install --no-cache-dir --break-system-packages --index-url https://download.pytorch.org/whl/cpu torch torchaudio \
-   && pip3 install --no-cache-dir --break-system-packages demucs soundfile numpy; \
+      # le pip de Debian est trop ancien pour l'index de PyTorch : on le met à jour d'abord
+      python3 -m pip install --no-cache-dir --break-system-packages -U pip \
+   && python3 -m pip install --no-cache-dir --break-system-packages --index-url https://download.pytorch.org/whl/cpu torch torchaudio \
+   && python3 -m pip install --no-cache-dir --break-system-packages demucs soundfile numpy; \
     fi
 COPY --from=whisper /usr/local/bin/whisper-cli /usr/local/bin/whisper-cli
 WORKDIR /app

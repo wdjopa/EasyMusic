@@ -6,6 +6,7 @@
 // Avec un fournisseur local, l'analyse se fait dans le navigateur et l'audio y est gardé.
 import { ANALYSIS_VERSION } from '../dsp/analyze';
 import { analyzeInWorker } from '../dsp/client';
+import { decodableAudio } from '../dsp/fmp4';
 import { analyzeVideo, catalogueSong, videoInfo, type Song } from './api';
 import { putAudio } from './audioStore';
 import { audioProvider, type LocalAudioProvider } from './audioProvider';
@@ -21,11 +22,14 @@ export async function analyzeWithProvider(p: LocalAudioProvider, id: string, onP
   const blob = await p.fetchAudio(id, (f, l) => onProgress(0.02 + f * 0.5, l || `Téléchargement de l’audio… ${Math.round(f * 100)} %`), signal);
   if (signal?.cancelled) throw new Error('annulé');
   onProgress(0.55, 'Décodage…');
-  const ctx = new OfflineAudioContext(1, 1, 44100);
-  const buffer = await ctx.decodeAudioData(await blob.arrayBuffer());
-  const analysis = await analyzeInWorker(buffer, (f, l) => onProgress(0.6 + f * 0.38, l));
-  await putAudio(id, blob); // gardé dans le navigateur : plus jamais téléchargé
+  const { blob: audio, buffer } = await decodeAny(blob);
+  // durée attendue connue (infos de la vidéo) : un son nettement plus court = téléchargement ou décodage incomplet
   const [server, local] = await metaP;
+  const expected = local.duration;
+  if (expected && buffer.duration < expected * 0.9)
+    throw new Error(`son incomplet : ${Math.round(buffer.duration)} s décodées sur ${Math.round(expected)} s`);
+  const analysis = await step('analyse des accords', () => analyzeInWorker(buffer, (f, l) => onProgress(0.6 + f * 0.38, l)));
+  await putAudio(id, audio); // gardé dans le navigateur : plus jamais téléchargé
   return {
     id,
     title: local.title ?? server?.title ?? 'Vidéo YouTube',
@@ -35,6 +39,45 @@ export async function analyzeWithProvider(p: LocalAudioProvider, id: string, onP
     duration: local.duration ?? buffer.duration,
     analysis,
   };
+}
+
+/** Message lisible d'une erreur quelconque (certains navigateurs rejettent avec null ou sans message). */
+export function describeError(e: unknown): string {
+  if (e instanceof Error && e.message) return e.message;
+  const any = e as { message?: unknown; name?: unknown } | null | undefined;
+  if (any && typeof any.message === 'string' && any.message) return any.message;
+  if (any && typeof any.name === 'string' && any.name) return any.name;
+  return e == null ? 'erreur sans message' : String(e);
+}
+
+async function step<T>(label: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (e) {
+    throw new Error(`${label} : ${describeError(e)}`);
+  }
+}
+
+/**
+ * Décode le son, en essayant d'abord la version « décodable partout » (m4a fragmenté de YouTube
+ * converti en AAC simple, voir dsp/fmp4.ts), puis le fichier d'origine.
+ */
+async function decodeAny(original: Blob): Promise<{ blob: Blob; buffer: AudioBuffer }> {
+  const size = `${(original.size / 1e6).toFixed(1).replace('.', ',')} Mo`;
+  if (original.size < 10_000) throw new Error(`le son reçu est vide ou presque (${original.size} octets)`);
+  const candidates = [await decodableAudio(original).catch(() => original)];
+  if (candidates[0] !== original) candidates.push(original);
+  const errors: string[] = [];
+  for (const blob of candidates) {
+    try {
+      const buffer = await new OfflineAudioContext(1, 1, 44100).decodeAudioData(await blob.arrayBuffer());
+      if (buffer.duration < 1) throw new Error('durée nulle');
+      return { blob, buffer };
+    } catch (e) {
+      errors.push(`${blob.type || 'type inconnu'} : ${describeError(e)}`);
+    }
+  }
+  throw new Error(`décodage du son impossible (${original.type || 'type inconnu'}, ${size} ; ${errors.join(' ; ')})`);
 }
 
 export async function obtainSong(id: string, onProgress: Progress, signal?: { cancelled: boolean }): Promise<Song> {
@@ -48,7 +91,7 @@ export async function obtainSong(id: string, onProgress: Progress, signal?: { ca
       return await analyzeWithProvider(p, id, onProgress, signal);
     } catch (e) {
       if (signal?.cancelled) throw e;
-      localError = e as Error;
+      localError = new Error(describeError(e));
       console.warn(`${p.label} : ${localError.message} — essai par le serveur`);
     }
   }

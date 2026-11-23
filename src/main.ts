@@ -2090,14 +2090,29 @@ function mediaDuration(): number {
   if (usingYt()) return yt?.getDuration() || state.analysis?.duration || 0;
   return Number.isFinite(player.duration) ? player.duration : state.analysis?.duration ?? 0;
 }
+let ytWatchdog = 0;
 function togglePlay() {
   if (!isMediaPlaying()) playIntentAt = performance.now();
   if (usingYt()) {
-    if (isMediaPlaying()) yt!.pauseVideo();
-    else yt!.playVideo();
+    if (isMediaPlaying()) return yt!.pauseVideo();
+    yt!.playVideo();
+    // lecteur YouTube muet (refus silencieux, ex. dans une app) : au bout de 4 s sans démarrer,
+    // on passe au son téléchargé, qui démarre tout seul
+    window.clearTimeout(ytWatchdog);
+    ytWatchdog = window.setTimeout(() => {
+      if (!usingYt() || ytState === YT_STATE.PLAYING || ytState === YT_STATE.BUFFERING) return;
+      onEmbedBlocked(false, false);
+      autoStartAudio = true;
+    }, 4000);
   } else if (player.src) {
-    if (player.paused) void player.play();
+    if (player.paused) void player.play().catch((e) => toast(`Lecture impossible : ${escapeHtml((e as Error).message || 'son illisible')}`));
     else player.pause();
+  } else if (state.source === 'youtube' && state.analysis) {
+    // le son n'est pas encore prêt : on le prépare et il démarrera tout seul
+    autoStartAudio = true;
+    state.appliedSemitones = Number.NaN; // force le chargement du son
+    if (audioStatus !== 'preparing') scheduleAudio(0);
+    toast('⏳ Préparation du son… la lecture démarrera toute seule.');
   }
 }
 function seekBy(d: number) {

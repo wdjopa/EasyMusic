@@ -25,18 +25,18 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.6",
-    "@types/node": "^22.20.5",
-    "concurrently": "^9.2.5",
+    "@types/node": "^26.6.6",
+    "concurrently": "^10.0.7",
     "tsx": "^4.23.15",
-    "typescript": "~5.8.3",
-    "vite": "^6.3.5",
-    "vitest": "^3.2.4"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.5",
     "@tauri-apps/plugin-http": "^2.9.0",
     "@tauri-apps/plugin-opener": "^2.7.3",
-    "abcjs": "^6.4.4",
+    "abcjs": "^6.7.3",
     "bgutils-js": "^4.0.3",
     "youtubei.js": "^18.3.0"
   }

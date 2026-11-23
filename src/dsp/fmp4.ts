@@ -78,7 +78,7 @@ function aacConfig(b: Uint8Array, moov: Box): { profile: number; freqIndex: numb
  * Convertit un m4a fragmenté en flux ADTS (type « audio/aac »), ou renvoie null si ce n'est pas un
  * MP4 fragmenté AAC (le fichier est alors laissé tel quel).
  */
-export function fragmentedMp4ToAdts(b: Uint8Array): Uint8Array | null {
+export function fragmentedMp4ToAdts(b: Uint8Array): Uint8Array<ArrayBuffer> | null {
   let moov: Box | null = null;
   for (const x of boxes(b, 0, b.length)) if (x.type === 'moov') { moov = x; break; }
   if (!moov || !isFragmentedMp4(b)) return null;

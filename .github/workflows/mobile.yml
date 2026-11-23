@@ -22,21 +22,21 @@ jobs:
     env:
       NDK_VERSION: 27.2.12479018
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
       - run: npm ci
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 21
 
       # le paquet « tools » (installé par défaut) n'existe plus : on n'installe que platform-tools
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
       - name: NDK
@@ -95,7 +95,7 @@ jobs:
           fi
           ls -la dist-android
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: enjoysing-android
           path: dist-android/*
@@ -110,11 +110,11 @@ jobs:
       # build signé seulement avec une clé API App Store Connect (profils créés automatiquement)
       HAS_APPLE_TEAM: ${{ secrets.APPLE_API_KEY != '' && (secrets.APPLE_DEVELOPMENT_TEAM != '' || secrets.APPLE_TEAM_ID != '') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
       - run: npm ci
 
@@ -149,7 +149,7 @@ jobs:
           export APPLE_API_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY}.p8
           npx tauri ios build --export-method app-store-connect --ci
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: enjoysing-ios
           path: |

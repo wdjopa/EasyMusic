@@ -19,7 +19,8 @@ function getWorker(): Worker {
     }
   });
   w.on('error', (e) => {
-    for (const p of pending.values()) p.reject(e);
+    const err = e instanceof Error ? e : new Error(String(e));
+    for (const p of pending.values()) p.reject(err);
     pending.clear();
     worker = null;
   });

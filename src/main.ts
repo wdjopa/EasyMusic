@@ -753,8 +753,8 @@ async function finishListening() {
     return;
   }
   const buffer = new AudioBuffer({ length: chans[0].length, numberOfChannels: 2, sampleRate: sr });
-  buffer.copyToChannel(chans[0], 0);
-  buffer.copyToChannel(chans[1], 1);
+  buffer.copyToChannel(chans[0] as Float32Array<ArrayBuffer>, 0);
+  buffer.copyToChannel(chans[1] as Float32Array<ArrayBuffer>, 1);
   state.buffer = buffer;
   if (state.originalUrl) URL.revokeObjectURL(state.originalUrl);
   state.originalUrl = URL.createObjectURL(encodeWav(chans, sr));

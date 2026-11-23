@@ -52,6 +52,8 @@ const nativeReady: Promise<void> =
         (e) => console.warn('Module natif indisponible :', e),
       )
     : Promise.resolve();
+// dans l'app, l'extension de navigateur n'a pas de sens
+if ('__TAURI_INTERNALS__' in window) document.getElementById('ext-link')?.remove();
 
 // ---------------------------------------------------------------- état
 const state = {

@@ -1,6 +1,8 @@
 import type { Catalogue } from './catalogue';
 import crypto from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { pipeline } from 'node:stream/promises';
 import { stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -23,6 +25,9 @@ const MIME: Record<string, string> = {
 };
 
 const publicJob = ({ song: _song, ...j }: Job) => j;
+
+/** Taille maximale d'un son envoyé pour transcription (≈ 15 min en AAC 128 kb/s). */
+const MAX_UPLOAD = 40 * 1024 * 1024;
 
 function json(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -109,18 +114,26 @@ export function createApp(opts: {
   const tjobs = new Map<string, TJob>();
   const tByVideo = new Map<string, TJob>();
   let tChain: Promise<void> = Promise.resolve();
-  const startTranscription = (videoId: string, meta: { title?: string; author?: string }): TJob => {
-    const existing = tByVideo.get(videoId);
+  /**
+   * `upload` : son envoyé par l'appareil de l'utilisateur (qui l'a déjà) au lieu d'un téléchargement par le
+   * serveur. Son origine n'est pas vérifiable : le résultat n'est rendu qu'à lui (pas de catalogue partagé).
+   */
+  const startTranscription = (videoId: string, meta: { title?: string; author?: string }, upload?: { file: string; dir: string }): TJob => {
+    const existing = upload ? undefined : tByVideo.get(videoId);
     if (existing && existing.status !== 'error' && Date.now() - existing.at < 3600_000) return existing;
     const job: TJob = { id: crypto.randomUUID(), videoId, status: 'queued', progress: 0, label: 'En attente…', at: Date.now() };
     tjobs.set(job.id, job);
-    tByVideo.set(videoId, job);
+    if (!upload) tByVideo.set(videoId, job);
     tChain = tChain.then(async () => {
       try {
         job.status = 'running';
-        job.label = 'Récupération de l’audio…';
-        await audio!.cache.ensure(videoId, () => audio!.download(videoId));
-        const file = audio!.cache.original(videoId);
+        let file: string | null | undefined;
+        if (upload) file = upload.file;
+        else {
+          job.label = 'Récupération de l’audio…';
+          await audio!.cache.ensure(videoId, () => audio!.download(videoId));
+          file = audio!.cache.original(videoId);
+        }
         if (!file) throw new Error('Audio indisponible.');
         job.label = 'Transcription par IA…';
         const lines = await opts.whisper!.transcribe(file, (f) => {
@@ -135,11 +148,13 @@ export function createApp(opts: {
         job.status = 'done';
         job.progress = 1;
         job.label = 'Terminé';
-        void catalogue?.putLyrics(videoId, job.lyrics);
+        if (!upload) void catalogue?.putLyrics(videoId, job.lyrics);
       } catch (e) {
         job.status = 'error';
         job.error = (e as Error).message;
         console.warn(`✗ Transcription ${videoId} : ${job.error}`);
+      } finally {
+        if (upload) await rm(upload.dir, { recursive: true, force: true }).catch(() => {});
       }
       job.at = Date.now();
     });
@@ -275,6 +290,39 @@ export function createApp(opts: {
           title: typeof body.title === 'string' ? body.title.slice(0, 300) : undefined,
           author: typeof body.author === 'string' ? body.author.slice(0, 200) : undefined,
         });
+        return json(res, 202, { job: { ...job, lyrics: undefined } });
+      }
+
+      // transcription à partir du son que l'appareil possède déjà (apps, extension : le serveur est souvent
+      // bloqué par YouTube). Corps de la requête = le fichier audio.
+      if (path === '/api/lyrics/transcribe-audio' && req.method === 'POST') {
+        if (!opts.whisper?.available()) return json(res, 501, { error: 'La transcription par IA n’est pas installée sur ce serveur.' });
+        const id = parseYouTubeId(url.searchParams.get('videoId') ?? '');
+        if (!id) return json(res, 400, { error: 'Vidéo invalide.' });
+        const known = await catalogue?.getLyrics(id);
+        if (known) return json(res, 200, { job: { id: 'catalogue', videoId: id, status: 'done', progress: 1, label: 'Terminé', at: Date.now() }, lyrics: known });
+        if (!limiter.allow(clientIp(req))) return json(res, 429, { error: 'Trop de demandes : réessayez dans une heure.' });
+        const dir = await mkdtemp(join(tmpdir(), 'easymusic-upload-'));
+        const file = join(dir, 'son');
+        try {
+          let size = 0;
+          const out = createWriteStream(file);
+          for await (const chunk of req) {
+            size += (chunk as Buffer).length;
+            if (size > MAX_UPLOAD) throw new Error('Fichier audio trop volumineux.');
+            if (!out.write(chunk)) await new Promise<void>((ok) => out.once("drain", () => ok()));
+          }
+          await new Promise<void>((ok, ko) => out.end((e?: Error | null) => (e ? ko(e) : ok())));
+          if (size < 10_000) throw new Error('Fichier audio vide.');
+        } catch (e) {
+          await rm(dir, { recursive: true, force: true });
+          return json(res, 400, { error: (e as Error).message });
+        }
+        const job = startTranscription(
+          id,
+          { title: url.searchParams.get('title')?.slice(0, 300) ?? undefined, author: url.searchParams.get('author')?.slice(0, 200) ?? undefined },
+          { file, dir },
+        );
         return json(res, 202, { job: { ...job, lyrics: undefined } });
       }
 

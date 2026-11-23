@@ -211,6 +211,25 @@ describe('serveur', () => {
     expect(evil.headers.get('access-control-allow-origin')).toBeNull();
   });
 
+  it('transcrit à partir du son envoyé par l’appareil (sans téléchargement par le serveur), sans le partager', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const body = await readFile(sineWav);
+    const r = await fetch(`${base}/api/lyrics/transcribe-audio?videoId=envoi000001&title=Titre`, { method: 'POST', headers: { 'content-type': 'audio/wav', 'cf-connecting-ip': '198.51.100.9' }, body });
+    expect(r.status).toBe(202);
+    const { job } = await r.json();
+    let res: { job: { status: string }; lyrics?: { source: string } } | null = null;
+    for (let i = 0; i < 50; i++) {
+      res = await (await fetch(`${base}/api/transcribe/${job.id}`)).json();
+      if (res!.job.status === 'done' || res!.job.status === 'error') break;
+      await new Promise((ok) => setTimeout(ok, 100));
+    }
+    expect(res!.job.status).toBe('done');
+    expect(res!.lyrics!.source).toBe('Whisper (IA)');
+    expect(cache.has('envoi000001')).toBe(false); // rien téléchargé
+    expect(await catalogue.getLyrics('envoi000001')).toBeNull(); // pas dans le catalogue partagé
+    expect((await fetch(`${base}/api/lyrics/transcribe-audio?videoId=envoi000001`, { method: 'POST', headers: { 'cf-connecting-ip': '198.51.100.9' }, body: 'x' })).status).toBe(400);
+  });
+
   it('rejette les liens invalides', async () => {
     expect((await post('https://vimeo.com/1')).status).toBe(400);
     expect((await post('; rm -rf /')).status).toBe(400);

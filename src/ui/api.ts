@@ -1,6 +1,7 @@
 // Client de l'API du serveur (catalogue et analyses YouTube).
 import type { AnalysisResult } from '../dsp/analyze';
 import type { Lyrics } from '../shared/lyrics';
+import { getAudio } from './audioStore';
 
 /** Résultat d'analyse renvoyé par le serveur. */
 export interface Song {
@@ -130,11 +131,24 @@ export async function transcribeLyrics(
   onProgress: (fraction: number, label: string) => void,
   signal?: { cancelled: boolean },
 ): Promise<Lyrics> {
-  const first = await req<{ job: { id: string; status: string; progress: number; label: string; error?: string }; lyrics?: Lyrics }>('/api/lyrics/transcribe', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ videoId, ...meta }),
-  });
+  type First = { job: { id: string; status: string; progress: number; label: string; error?: string }; lyrics?: Lyrics };
+  // le son est déjà sur l'appareil : on l'envoie (le serveur, lui, est souvent bloqué par YouTube)
+  const local = await getAudio(videoId);
+  let first: First;
+  if (local) {
+    onProgress(0, 'Envoi du son au serveur…');
+    const q = new URLSearchParams({ videoId, ...(meta.title ? { title: meta.title } : {}), ...(meta.author ? { author: meta.author } : {}) });
+    first = await req<First>(`/api/lyrics/transcribe-audio?${q}`, {
+      method: 'POST',
+      headers: { 'content-type': local.type || 'application/octet-stream' },
+      body: local,
+    });
+  } else
+    first = await req<First>('/api/lyrics/transcribe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ videoId, ...meta }),
+    });
   if (first.lyrics) return first.lyrics; // déjà transcrites (catalogue partagé)
   let job = first.job;
   for (;;) {

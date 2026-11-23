@@ -27,10 +27,17 @@ RUN apt-get update \
  # yt-dlp + le fournisseur de jetons PO (contre le blocage « not a bot » de YouTube sur les serveurs)
  && pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]" bgutil-ytdlp-pot-provider \
  && rm -rf /var/lib/apt/lists/*
+# Séparation voix / instruments (Demucs, version processeur de PyTorch : ~1 Go). WITH_DEMUCS=0 pour s'en passer.
+ARG WITH_DEMUCS=1
+RUN if [ "$WITH_DEMUCS" = "1" ]; then \
+      pip3 install --no-cache-dir --break-system-packages --index-url https://download.pytorch.org/whl/cpu torch torchaudio \
+   && pip3 install --no-cache-dir --break-system-packages demucs soundfile numpy; \
+    fi
 COPY --from=whisper /usr/local/bin/whisper-cli /usr/local/bin/whisper-cli
 WORKDIR /app
 COPY --from=build /app /app
 RUN chmod +x /app/docker/start.sh && mkdir -p /models
-ENV NODE_ENV=production PORT=8787 STATIC_DIR=/app/dist WHISPER_CLI=whisper-cli
+# modèles d'IA (Whisper, Demucs) gardés dans le volume /models : téléchargés une seule fois
+ENV NODE_ENV=production PORT=8787 STATIC_DIR=/app/dist WHISPER_CLI=whisper-cli HF_HOME=/models/hf TORCH_HOME=/models/torch
 EXPOSE 8787
 CMD ["/app/docker/start.sh"]

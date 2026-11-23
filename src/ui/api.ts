@@ -113,6 +113,8 @@ export async function fetchLyrics(title: string, author: string, duration?: numb
 
 export interface Features {
   whisper: boolean;
+  /** Séparation voix / instruments (Demucs) installée sur le serveur. */
+  separation?: boolean;
   whisperReason?: string;
   transposedAudio: boolean;
 }
@@ -159,5 +161,38 @@ export async function transcribeLyrics(
     const r = await req<{ job: typeof job; lyrics?: Lyrics }>(`/api/transcribe/${job.id}`);
     if (r.lyrics) return r.lyrics;
     job = r.job;
+  }
+}
+
+export interface Separation {
+  analysis: AnalysisResult;
+  stems: { vocals: string; instrumental: string };
+}
+
+/**
+ * Sépare la voix et les instruments sur le serveur (Demucs) et attend le résultat : analyse refaite
+ * (accords sur les instruments, mélodie sur la voix) et adresses des deux pistes.
+ * `audio` : le son si l'appareil l'a déjà (le serveur, lui, est souvent bloqué par YouTube).
+ */
+export async function separateSong(
+  videoId: string,
+  audio: Blob | undefined,
+  onProgress: (fraction: number, label: string) => void,
+  signal?: { cancelled: boolean },
+): Promise<Separation> {
+  type R = { job: { id: string; status: string; progress: number; label: string; error?: string }; analysis?: AnalysisResult; stems?: Separation['stems'] };
+  if (audio) onProgress(0, 'Envoi du son au serveur…');
+  let r = await req<R>(`/api/separate?videoId=${videoId}`, {
+    method: 'POST',
+    headers: { 'content-type': audio?.type || 'application/octet-stream' },
+    body: audio ?? null,
+  });
+  for (;;) {
+    if (signal?.cancelled) throw new Error('annulé');
+    onProgress(r.job.progress, r.job.label);
+    if (r.job.status === 'error') throw new Error(r.job.error ?? 'Séparation impossible');
+    if (r.job.status === 'done' && r.analysis && r.stems) return { analysis: r.analysis, stems: { vocals: apiUrl(r.stems.vocals), instrumental: apiUrl(r.stems.instrumental) } };
+    await new Promise((ok) => setTimeout(ok, 1500));
+    r = await req<R>(`/api/separate/${r.job.id}`);
   }
 }

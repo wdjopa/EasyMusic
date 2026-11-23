@@ -25,11 +25,18 @@ export interface AnalysisResult {
   /** Temps détectés (s) et nombre de temps par mesure : pour écrire la partition. */
   beats?: number[];
   meter?: number;
+  /** Vrai si l'analyse a été faite après séparation voix / instruments (accords sur les instruments, mélodie sur la voix). */
+  separated?: boolean;
+}
+
+export interface AnalyzeOptions {
+  /** Voix seule (séparée) : la mélodie est estimée dessus, les accords sur `channels` (les instruments). */
+  vocals?: Float32Array[];
 }
 
 export type Progress = (fraction: number, label: string) => void;
 
-export function analyze(channels: Float32Array[], sampleRate: number, onProgress: Progress = () => {}): AnalysisResult {
+export function analyze(channels: Float32Array[], sampleRate: number, onProgress: Progress = () => {}, opts: AnalyzeOptions = {}): AnalysisResult {
   onProgress(0.05, 'Mixage et sous-échantillonnage…');
   const mono = toMono(channels);
   const factor = Math.max(1, Math.floor(sampleRate / 11025));
@@ -77,7 +84,13 @@ export function analyze(channels: Float32Array[], sampleRate: number, onProgress
 
   onProgress(0.85, 'Détection de la tonalité et de la mélodie…');
   const key = chordKey;
-  const mr = estimateMelodyRange(spec);
+  // voix séparée : la mélodie est cherchée sur la voix seule (bien plus fiable que sur le mélange)
+  let melodySpec = spec;
+  if (opts.vocals?.length) {
+    const v = decimate(toMono(opts.vocals), factor);
+    melodySpec = stft(v, sr, fftSize, hop);
+  }
+  const mr = estimateMelodyRange(melodySpec, undefined, undefined, !!opts.vocals?.length);
 
   onProgress(1, 'Terminé');
   return {
@@ -93,5 +106,6 @@ export function analyze(channels: Float32Array[], sampleRate: number, onProgress
     bpm: Math.round(bpm),
     beats: beats.map((b) => Math.round(b * 1000) / 1000),
     meter: harmonicBeats === 3 || harmonicBeats === 6 ? 3 : 4,
+    ...(opts.vocals?.length ? { separated: true } : {}),
   };
 }

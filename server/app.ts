@@ -1,4 +1,6 @@
 import type { Catalogue } from './catalogue';
+import type { Stems } from './separate';
+import type { AnalysisResult } from '../src/dsp/analyze';
 import crypto from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -100,6 +102,13 @@ export function createApp(opts: {
   catalogue?: Catalogue;
   /** Origines autorisées à appeler l'API depuis ailleurs (apps Tauri). */
   corsOrigins?: string[];
+  /** Séparation voix / instruments (Demucs), si installée. */
+  separation?: {
+    available: () => boolean;
+    separate: (file: string, onProgress: (f: number) => void, ext: 'mp3' | 'm4a') => Promise<Stems>;
+    /** Analyse : accords sur les instruments, mélodie sur la voix (fichiers WAV). */
+    analyze: (instrumentalWav: string, vocalsWav: string, onProgress: (f: number, label: string) => void) => Promise<AnalysisResult>;
+  };
   /** Infos publiques d'une vidéo (titre, auteur…) sans la télécharger (remplaçable dans les tests). */
   videoInfo?: (id: string) => Promise<PublicInfo | null>;
 }) {
@@ -160,6 +169,108 @@ export function createApp(opts: {
     });
     return job;
   };
+
+  // ---- séparation voix / instruments : même file que Whisper (calculs lourds, un à la fois)
+  interface SJob {
+    id: string;
+    videoId: string;
+    status: 'queued' | 'running' | 'done' | 'error';
+    progress: number;
+    label: string;
+    error?: string;
+    at: number;
+    analysis?: AnalysisResult;
+    stems?: Stems;
+    trusted: boolean; // son récupéré par le serveur lui-même (et non envoyé par l'appareil)
+  }
+  const sjobs = new Map<string, SJob>();
+  const sByVideo = new Map<string, SJob>();
+  setInterval(() => {
+    for (const [id, j] of sjobs)
+      if ((j.status === 'done' || j.status === 'error') && Date.now() - j.at > 30 * 60_000) {
+        sjobs.delete(id);
+        if (sByVideo.get(j.videoId) === j) sByVideo.delete(j.videoId);
+        if (j.stems) void rm(j.stems.dir, { recursive: true, force: true });
+      }
+  }, 60_000).unref();
+  const startSeparation = (videoId: string, upload?: { file: string; dir: string }): SJob => {
+    const job: SJob = { id: crypto.randomUUID(), videoId, status: 'queued', progress: 0, label: 'En attente…', at: Date.now(), trusted: !upload };
+    sjobs.set(job.id, job);
+    if (!upload) sByVideo.set(videoId, job);
+    tChain = tChain.then(async () => {
+      const sep = opts.separation!;
+      try {
+        job.status = 'running';
+        let file: string | null | undefined;
+        if (upload) file = upload.file;
+        else {
+          job.label = 'Récupération du son…';
+          await audio!.cache.ensure(videoId, () => audio!.download(videoId));
+          file = audio!.cache.original(videoId);
+        }
+        if (!file) throw new Error('Son indisponible.');
+        job.label = 'Séparation de la voix et des instruments…';
+        job.stems = await sep.separate(
+          file,
+          (f) => {
+            job.progress = 0.05 + f * 0.7;
+            job.label = `Séparation de la voix et des instruments… ${Math.round(f * 100)} %`;
+          },
+          audio?.cache.format.ext === 'mp3' ? 'mp3' : 'm4a',
+        );
+        job.label = 'Analyse des accords et de la mélodie…';
+        job.analysis = await sep.analyze(job.stems.instrumentalWav, job.stems.vocalsWav, (f, label) => {
+          job.progress = 0.75 + f * 0.24;
+          job.label = label;
+        });
+        // son récupéré par le serveur : l'analyse améliorée profite à tout le monde
+        if (job.trusted && catalogue) {
+          const known = await catalogue.get(videoId);
+          if (known) await catalogue.put({ ...known, analysis: job.analysis });
+        }
+        job.status = 'done';
+        job.progress = 1;
+        job.label = 'Terminé';
+      } catch (e) {
+        job.status = 'error';
+        job.error = (e as Error).message;
+        console.warn(`✗ Séparation ${videoId} : ${job.error}`);
+      } finally {
+        if (upload) await rm(upload.dir, { recursive: true, force: true }).catch(() => {});
+      }
+      job.at = Date.now();
+    });
+    return job;
+  };
+  const publicSJob = (j: SJob) => ({
+    job: { id: j.id, videoId: j.videoId, status: j.status, progress: j.progress, label: j.label, error: j.error },
+    analysis: j.status === 'done' ? j.analysis : undefined,
+    stems: j.status === 'done' && j.stems ? { vocals: `/api/separate/${j.id}/voix`, instrumental: `/api/separate/${j.id}/instruments` } : undefined,
+  });
+
+  /** Lit le corps de la requête (son envoyé) dans un fichier temporaire ; null si le corps est vide. */
+  async function readUpload(req: IncomingMessage): Promise<{ file: string; dir: string } | null> {
+    const dir = await mkdtemp(join(tmpdir(), 'easymusic-upload-'));
+    const file = join(dir, 'son');
+    let size = 0;
+    try {
+      const out = createWriteStream(file);
+      for await (const chunk of req) {
+        size += (chunk as Buffer).length;
+        if (size > MAX_UPLOAD) throw new Error('Fichier audio trop volumineux.');
+        if (!out.write(chunk)) await new Promise<void>((ok) => out.once('drain', () => ok()));
+      }
+      await new Promise<void>((ok, ko) => out.end((e?: Error | null) => (e ? ko(e) : ok())));
+    } catch (e) {
+      await rm(dir, { recursive: true, force: true });
+      throw e;
+    }
+    if (size < 10_000) {
+      await rm(dir, { recursive: true, force: true });
+      return null;
+    }
+    return { file, dir };
+  }
 
   async function serveStatic(req: IncomingMessage, res: ServerResponse, path: string) {
     if (!staticDir) return json(res, 404, { error: 'Introuvable' });
@@ -272,7 +383,7 @@ export function createApp(opts: {
 
       if (path === '/api/features' && req.method === 'GET') {
         const whisper = !!(opts.whisper?.available() && audio);
-        return json(res, 200, { whisper, whisperReason: whisper ? '' : opts.whisper?.reason?.() ?? 'non configuré', transposedAudio: !!audio });
+        return json(res, 200, { whisper, whisperReason: whisper ? '' : opts.whisper?.reason?.() ?? 'non configuré', transposedAudio: !!audio, separation: !!opts.separation?.available() });
       }
 
       if (path === '/api/lyrics/transcribe' && req.method === 'POST') {
@@ -324,6 +435,41 @@ export function createApp(opts: {
           { file, dir },
         );
         return json(res, 202, { job: { ...job, lyrics: undefined } });
+      }
+
+      // séparation voix / instruments (son envoyé par l'appareil, ou récupéré par le serveur)
+      if (path === '/api/separate' && req.method === 'POST') {
+        if (!opts.separation?.available()) return json(res, 501, { error: 'La séparation voix / instruments n’est pas installée sur ce serveur.' });
+        const id = parseYouTubeId(url.searchParams.get('videoId') ?? '');
+        if (!id) return json(res, 400, { error: 'Vidéo invalide.' });
+        const recent = sByVideo.get(id);
+        if (recent && recent.status !== 'error') {
+          req.resume(); // corps éventuel ignoré
+          return json(res, 202, publicSJob(recent));
+        }
+        if (!limiter.allow(clientIp(req))) return json(res, 429, { error: 'Trop de demandes : réessayez dans une heure.' });
+        // le serveur a déjà le son : on l'utilise (résultat partageable) ; sinon celui envoyé par l'appareil
+        if (audio?.cache.has(id)) {
+          req.resume();
+          return json(res, 202, publicSJob(startSeparation(id)));
+        }
+        let upload: { file: string; dir: string } | null;
+        try {
+          upload = await readUpload(req);
+        } catch (e) {
+          return json(res, 400, { error: (e as Error).message });
+        }
+        if (!upload && !audio) return json(res, 400, { error: 'Envoyez le son du morceau.' });
+        return json(res, 202, publicSJob(startSeparation(id, upload ?? undefined)));
+      }
+      const sj = path.match(/^\/api\/separate\/([\w-]+)(?:\/(voix|instruments))?$/);
+      if (sj && (req.method === 'GET' || req.method === 'HEAD')) {
+        const job = sjobs.get(sj[1]);
+        if (!job) return json(res, 404, { error: 'Séparation inconnue ou expirée.' });
+        if (!sj[2]) return json(res, 200, publicSJob(job));
+        if (job.status !== 'done' || !job.stems) return json(res, 404, { error: 'Pas encore prête.' });
+        const f = sj[2] === 'voix' ? job.stems.vocals : job.stems.instrumental;
+        return await serveFile(req, res, f, f.endsWith('.mp3') ? 'audio/mpeg' : 'audio/mp4');
       }
 
       const tj = path.match(/^\/api\/transcribe\/([\w-]+)$/);

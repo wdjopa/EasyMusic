@@ -65,6 +65,18 @@ beforeAll(async () => {
     queue,
     catalogue,
     corsOrigins: ['tauri://localhost'],
+    separation: {
+      available: () => true,
+      // fausse séparation : copie le son dans deux pistes
+      separate: async (file, onProgress, ext) => {
+        const { mkdtemp: mk, copyFile } = await import('node:fs/promises');
+        const d = await mk(join(dir, 'sep-'));
+        onProgress(0.5);
+        for (const n of ['voix', 'instruments', 'v', 'i']) await copyFile(file, join(d, n.length > 1 ? `${n}.${ext}` : `${n}.wav`));
+        return { dir: d, vocals: join(d, `voix.${ext}`), instrumental: join(d, `instruments.${ext}`), vocalsWav: join(d, 'v.wav'), instrumentalWav: join(d, 'i.wav') };
+      },
+      analyze: async () => ({ duration: 4, key: { tonic: 0, mode: 'major' }, segments: [], melodyRange: null, separated: true }),
+    },
     videoInfo: async (id) => (id === 'pasdutout00' ? null : { id, title: 'Titre oEmbed', author: 'Chaîne', thumbnail: '', embeddable: id !== 'nonintegre0' }),
     rateLimitPerHour: 8,
     whisper: {
@@ -228,6 +240,25 @@ describe('serveur', () => {
     expect(cache.has('envoi000001')).toBe(false); // rien téléchargé
     expect(await catalogue.getLyrics('envoi000001')).toBeNull(); // pas dans le catalogue partagé
     expect((await fetch(`${base}/api/lyrics/transcribe-audio?videoId=envoi000001`, { method: 'POST', headers: { 'cf-connecting-ip': '198.51.100.9' }, body: 'x' })).status).toBe(400);
+  });
+
+  it('sépare voix et instruments à partir du son envoyé, et sert les deux pistes', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const body = await readFile(sineWav);
+    const r = await fetch(`${base}/api/separate?videoId=separe00001`, { method: 'POST', headers: { 'content-type': 'audio/wav', 'cf-connecting-ip': '198.51.100.20' }, body });
+    expect(r.status).toBe(202);
+    let res = await r.json();
+    for (let i = 0; i < 50 && res.job.status !== 'done' && res.job.status !== 'error'; i++) {
+      await new Promise((ok) => setTimeout(ok, 100));
+      res = await (await fetch(`${base}/api/separate/${res.job.id}`)).json();
+    }
+    expect(res.job.status).toBe('done');
+    expect(res.analysis.separated).toBe(true);
+    const voix = await fetch(`${base}${res.stems.vocals}`);
+    expect(voix.status).toBe(200);
+    expect((await voix.arrayBuffer()).byteLength).toBe(body.length);
+    expect((await fetch(`${base}${res.stems.instrumental}`)).status).toBe(200);
+    expect(await (await fetch(`${base}/api/features`)).json()).toMatchObject({ separation: true });
   });
 
   it('rejette les liens invalides', async () => {

@@ -34,7 +34,11 @@ export function fetchAndStoreAudio(id: string): Promise<Blob> {
 
 /** L'audio original : celui du navigateur s'il existe, sinon téléchargé une fois. */
 export async function songAudio(id: string): Promise<Blob> {
-  return (await getAudio(id)) ?? fetchAndStoreAudio(id);
+  const stored = await getAudio(id);
+  if (stored) return stored;
+  // pistes séparées (« id~instru », « id~voix ») : seulement celles gardées dans le navigateur
+  if (id.includes('~')) throw new Error('Piste séparée introuvable : relancez « Séparer voix / instruments ».');
+  return fetchAndStoreAudio(id);
 }
 
 // caches de la session (mémoire) : audio décodé de la chanson ouverte, versions transposées récentes

@@ -28,11 +28,12 @@ function getWorker(): Worker {
   return w;
 }
 
-/** Analyse un signal mono dans un thread dédié. */
-export function analyzeOffThread(audio: Float32Array, sampleRate: number, onProgress: Progress): Promise<AnalysisResult> {
+/** Analyse un signal mono dans un thread dédié (avec, si fournie, la voix séparée pour la mélodie). */
+export function analyzeOffThread(audio: Float32Array, sampleRate: number, onProgress: Progress, vocals?: Float32Array): Promise<AnalysisResult> {
   const id = nextId++;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject, onProgress });
-    getWorker().postMessage({ id, audio, sampleRate }, [audio.buffer as ArrayBuffer]);
+    const transfer = [audio.buffer as ArrayBuffer, ...(vocals ? [vocals.buffer as ArrayBuffer] : [])];
+    getWorker().postMessage({ id, audio, sampleRate, vocals }, transfer);
   });
 }

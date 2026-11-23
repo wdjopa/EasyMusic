@@ -7,7 +7,8 @@ import { AudioCache } from './audioCache';
 import { JobQueue } from './jobs';
 import { Catalogue } from './catalogue';
 import { transcribe, whisperAvailable, whisperReason } from './whisper';
-import { downloadAudio, fetchInfo } from './youtube';
+import { decode, downloadAudio, fetchInfo } from './youtube';
+import { separate, separationAvailable } from './separate';
 
 const audioCache = new AudioCache();
 const catalogue = new Catalogue(config.dataDir);
@@ -27,6 +28,12 @@ const handler = createApp({
   },
   staticDir: existsSync(config.staticDir) ? config.staticDir : undefined,
   rateLimitPerHour: config.rateLimitPerHour,
+  separation: {
+    available: separationAvailable,
+    separate,
+    analyze: async (instrumental, vocals, onProgress) =>
+      analyzeOffThread(await decode(instrumental), config.sampleRate, onProgress, await decode(vocals)),
+  },
   catalogue,
   corsOrigins: config.corsOrigins,
 });
@@ -34,6 +41,7 @@ const handler = createApp({
 createServer((req, res) => void handler(req, res)).listen(config.port, () => {
   console.log(`EnjoySing : http://localhost:${config.port}`);
   whisperAvailable(); // affiche tout de suite si les paroles par IA sont prêtes, et sinon pourquoi
+  setTimeout(() => separationAvailable(), 2000); // idem pour la séparation (import de torch : quelques secondes)
 });
 
 // ne laisser aucun fichier audio derrière soi

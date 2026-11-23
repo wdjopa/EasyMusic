@@ -7,7 +7,7 @@ import type { Spectrogram } from './spectrum';
  * suivi de la fondamentale la plus saillante, puis percentiles 5 % / 95 %.
  * C'est une estimation : l'utilisateur peut l'ajuster.
  */
-export function estimateMelodyRange(spec: Spectrogram, midiLow = 45, midiHigh = 84): (Range & { track: Float32Array }) | null {
+export function estimateMelodyRange(spec: Spectrogram, midiLow = 45, midiHigh = 84, isolatedVoice = false): (Range & { track: Float32Array }) | null {
   const { frames, sampleRate, fftSize } = spec;
   const binHz = sampleRate / fftSize;
   const nyq = sampleRate / 2;
@@ -71,6 +71,15 @@ export function estimateMelodyRange(spec: Spectrogram, midiLow = 45, midiHigh = 
   if (!raw.length) return null;
   const sortedS = [...saliences].sort((a, b) => a - b);
   const thr = sortedS[Math.floor(sortedS.length * 0.4)];
+  // voix isolée : les silences entre les phrases ne sont que du bruit résiduel de la séparation ;
+  // on les écarte par leur énergie (l'interprétation relative ci-dessus ne suffit pas)
+  if (isolatedVoice) {
+    const energy = spec.frames.map((mag) => mag.reduce((a, b) => a + b, 0));
+    const loud = [...energy].sort((a, b) => a - b)[Math.floor(energy.length * 0.9)];
+    energy.forEach((e, t) => {
+      if (e < loud * 0.08) raw[t].s = 0;
+    });
+  }
 
   // filtrage médian sur 5 trames pour supprimer les erreurs ponctuelles
   const vals: number[] = [];

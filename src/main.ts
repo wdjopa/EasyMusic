@@ -25,14 +25,14 @@ import {
   transposeKey,
   VOICE_TYPES,
 } from './music/theory';
-import { fetchFeatures, fetchLyrics, transcribeLyrics } from './ui/api';
+import { fetchFeatures, fetchLyrics, separateSong, transcribeLyrics } from './ui/api';
 import type { Lyrics } from './shared/lyrics';
 import { getSong, listSongs, markNotEmbeddable, removeSong, saveLyrics, savePrefs, saveSong, type LibrarySong } from './ui/library';
 import { startTabRecorder, tabCaptureSupported, type TabRecorder } from './ui/capture';
 import { startMic, type MicSession } from './ui/mic';
 import { Queue } from './ui/queue';
 import { Layout, type PanelId } from './ui/layout';
-import { deleteAudio, loadStoredIds, onStoredChange, storedIds } from './ui/audioStore';
+import { deleteAudio, getAudio, loadStoredIds, onStoredChange, putAudio, storedIds } from './ui/audioStore';
 import { localAudioUrl, songAudio } from './ui/localAudio';
 import { obtainSong } from './ui/obtain';
 import { analyzeTake, headlineOf, renderReview } from './ui/takeReview';
@@ -80,6 +80,8 @@ const state = {
   currentIdx: -1,
   shiftedUrl: null as string | null,
   originalUrl: null as string | null,
+  /** Karaoké : la musique sans la voix originale (piste séparée). */
+  karaoke: false,
 };
 
 function loadMode(): 'original' | 'voice' {
@@ -400,6 +402,8 @@ function renderCatalogue() {
       if (song && confirm(`Retirer « ${song.title} » du catalogue ?`)) {
         removeSong(song.id);
         void deleteAudio(song.id);
+        void deleteAudio(`${song.id}~instru`);
+        void deleteAudio(`${song.id}~voix`);
         refreshCatalogue();
       }
     };
@@ -608,6 +612,7 @@ let analysisToken = { cancelled: false };
 /** Affiche une chanson et restaure les réglages enregistrés (transposition, capo…). */
 function openSong(song: Pick<LibrarySong, 'title' | 'analysis' | 'prefs'> & Partial<Pick<LibrarySong, 'id' | 'author' | 'lyrics'>>) {
   $('song-title').textContent = song.title;
+  state.karaoke = false;
   state.lyricsOffset = song.prefs?.lyricsOffset ?? 0;
   void loadLyrics(song.title, song.author ?? '', song.analysis.duration, song.id ?? null, song.lyrics);
   state.analysis = null;
@@ -792,7 +797,7 @@ function showAnalysis(a: AnalysisResult) {
 /** Lecture de la vidéo YouTube d'origine (et non d'une version transposée). */
 /** Vidéo interdite hors de YouTube : on joue alors le son (téléchargé par le serveur) à la place. */
 let ytBlocked = false;
-const usingYt = () => state.source === 'youtube' && !!yt && !ytBlocked && state.appliedSemitones === 0;
+const usingYt = () => state.source === 'youtube' && !!yt && !ytBlocked && state.appliedSemitones === 0 && !state.karaoke;
 
 /** Moment où l'utilisateur a demandé la lecture (pour enchaîner sur le son si la vidéo est refusée). */
 let playIntentAt = 0;
@@ -1062,7 +1067,7 @@ async function syncAudio() {
   autoStartAudio = false;
 
   // retour à la vidéo originale (sauf si elle ne peut pas être lue ici)
-  if (state.source === 'youtube' && target === 0 && !ytBlocked) {
+  if (state.source === 'youtube' && target === 0 && !ytBlocked && !state.karaoke) {
     player.pause();
     player.hidden = true;
     state.appliedSemitones = 0;
@@ -1082,7 +1087,7 @@ async function syncAudio() {
     if (state.source === 'youtube') {
       if (!currentSongId) return;
       // audio gardé dans le navigateur (téléchargé une seule fois), transposé sur place
-      url = await localAudioUrl(currentSongId, target, (label) => {
+      url = await localAudioUrl(state.karaoke ? `${currentSongId}~instru` : currentSongId, target, (label) => {
         if (token !== audioToken) return;
         audioLabel = label;
         document.querySelectorAll<HTMLElement>('.audio-state').forEach((e) => (e.textContent = `⏳ ${label}`));
@@ -1125,7 +1130,72 @@ function formatTime(sec: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+// ---------------------------------------------------------------- séparation voix / instruments, karaoké
+let separationOn = false;
+let sepRunning = false;
+void fetchFeatures().then((f) => {
+  separationOn = !!f.separation;
+  updateSepUi();
+});
+
+function updateSepUi() {
+  const id = currentSongId;
+  const youtube = state.source === 'youtube' && !!id && !!state.analysis;
+  $('sep-btn').hidden = !youtube || !separationOn || sepRunning || !!state.analysis?.separated;
+  const hasStems = youtube && storedIds.has(`${id}~instru`);
+  $('karaoke-btn').hidden = !hasStems;
+  $('karaoke-btn').classList.toggle('active', state.karaoke);
+  $('karaoke-btn').setAttribute('aria-pressed', String(state.karaoke));
+  if (!hasStems && state.karaoke) state.karaoke = false;
+}
+onStoredChange(updateSepUi);
+
+$('sep-btn').addEventListener('click', async () => {
+  const id = currentSongId;
+  if (!id || sepRunning) return;
+  sepRunning = true;
+  updateSepUi();
+  const status = $('sep-state');
+  try {
+    const local = await getAudio(id);
+    const r = await separateSong(id, local, (_f, label) => (status.textContent = `⏳ ${label}`));
+    status.textContent = '⏳ Récupération des deux pistes…';
+    const get = async (u: string) => {
+      const res = await fetch(u);
+      if (!res.ok) throw new Error(`piste indisponible (${res.status})`);
+      return res.blob();
+    };
+    const [voix, instru] = await Promise.all([get(r.stems.vocals), get(r.stems.instrumental)]);
+    await putAudio(`${id}~instru`, instru);
+    await putAudio(`${id}~voix`, voix);
+    // analyse refaite sur les pistes séparées : on la garde (réglages et paroles conservés)
+    const saved = getSong(id);
+    if (saved && currentSongId === id) {
+      const song = { ...saved, analysis: r.analysis };
+      saveSong(song);
+      openSong(song);
+      refreshCatalogue();
+    }
+    status.textContent = '';
+    toast('🎚️ Voix et instruments séparés : mélodie et accords recalculés. Essayez le mode 🎤 Karaoké.');
+  } catch (e) {
+    status.textContent = `⚠️ ${(e as Error).message}`;
+  } finally {
+    sepRunning = false;
+    updateSepUi();
+  }
+});
+
+$('karaoke-btn').addEventListener('click', () => {
+  state.karaoke = !state.karaoke;
+  state.appliedSemitones = Number.NaN; // recharge le son (piste instrumentale ou son complet)
+  scheduleAudio(0);
+  updateSepUi();
+  toast(state.karaoke ? '🎤 Karaoké : la voix originale est retirée.' : '🎵 Son complet, avec la voix originale.');
+});
+
 function render() {
+  updateSepUi();
   const f = flats();
   const a = state.analysis;
   segs = displaySegments();

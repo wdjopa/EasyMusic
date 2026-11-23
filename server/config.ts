@@ -34,6 +34,10 @@ export const config = {
   whisperThreads: Number(env.WHISPER_THREADS ?? 4),
   /** Réglage DTW (déduit du nom du modèle si absent). */
   whisperDtw: env.WHISPER_DTW || undefined,
+  /** Séparation voix / instruments (Demucs) : Python qui a demucs et torch installés. */
+  demucsPython: env.DEMUCS_PYTHON ?? 'python3',
+  demucsModel: env.DEMUCS_MODEL ?? 'htdemucs',
+  demucsThreads: Number(env.DEMUCS_THREADS ?? env.WHISPER_THREADS ?? 4),
   /** Dossier du catalogue partagé (analyses et paroles déjà calculées). */
   dataDir: resolve(env.DATA_DIR ?? 'data'),
   /** Origines autorisées à appeler l'API depuis un autre site (apps Tauri, développement). */

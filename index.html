@@ -141,6 +141,9 @@
             <button class="btn small-btn" id="tp-loop" title="Boucle : 1er clic = début (A), 2e clic = fin (B), 3e clic = sans boucle">⟳ Boucle A–B</button>
             <span class="small loop-info" id="loop-info"></span>
             <button class="btn small-btn ghost" id="open-report" hidden>📊 Bilan</button>
+            <button class="btn small-btn" id="sep-btn" type="button" hidden title="Isole la voix des instruments (IA, sur le serveur, 1 à 2 min) : mélodie et accords plus justes, et mode karaoké">🎚️ Séparer voix / instruments</button>
+            <button class="btn small-btn" id="karaoke-btn" type="button" hidden aria-pressed="false" title="Musique sans la voix originale, pour chanter dessus (dans la tonalité choisie)">🎤 Karaoké</button>
+            <span class="small" id="sep-state"></span>
           </div>
         <!-- chargement par étapes -->
         <div class="loading" id="loading" hidden>

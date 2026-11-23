@@ -135,3 +135,8 @@ yt-dlp est mis à jour automatiquement à chaque redémarrage du conteneur : en 
 | `WHISPER_THREADS` | 4 | processeurs utilisés par Whisper |
 | `RATE_LIMIT_PER_HOUR` | 30 | nouvelles analyses par visiteur et par heure |
 | `YTDLP_COOKIES` | — | fichier de cookies YouTube, si le blocage persiste |
+| `DEMUCS_THREADS` | 4 | processeurs utilisés pour séparer voix et instruments (1 à 2 min par chanson, 2 à 3 Go de mémoire) |
+
+La séparation voix / instruments (Demucs) est incluse dans l'image (~1 Go de plus). Pour construire une image
+sans elle : argument de construction `WITH_DEMUCS=0`. Son modèle (~80 Mo) est téléchargé dans le volume des
+modèles à la première séparation.

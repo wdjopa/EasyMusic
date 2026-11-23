@@ -303,3 +303,32 @@ export function youtubeHeaders(url: string, init?: RequestInit): Headers {
   if (!headers.has('user-agent')) headers.set('User-Agent', headers.get('x-youtube-client-name') === '7' ? TV_USER_AGENT : (globalThis.navigator?.userAgent ?? ''));
   return headers;
 }
+
+// ---------------------------------------------------------------- réseau instable
+const NETWORK_ERROR = /error sending request|connection (?:closed|reset|refused)|timed? ?out|dns|network|tcp connect|unreachable/i;
+
+/**
+ * Réessaie une requête qui échoue pour une raison RÉSEAU (téléphone qui passe du Wi-Fi à la 4G, mise en veille,
+ * réseau lent) : 3 essais espacés. Une vraie réponse de YouTube (même une erreur HTTP) n'est pas réessayée ici.
+ */
+export async function withNetworkRetry<T>(run: () => Promise<T>, url: string, tries = 3, wait = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await run();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const network = NETWORK_ERROR.test(msg) && !/cancel|annul/i.test(msg);
+      if (!network) throw e;
+      if (i >= tries - 1) {
+        let host = url;
+        try {
+          host = new URL(url).hostname;
+        } catch {
+          /* adresse brute */
+        }
+        throw new Error(`Connexion à ${host} impossible depuis le téléphone (réseau coupé ou instable). Vérifiez la connexion Internet et réessayez.`);
+      }
+      await wait(800 * (i + 1));
+    }
+  }
+}

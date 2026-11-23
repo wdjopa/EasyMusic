@@ -5,7 +5,7 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { registerAudioProvider, type LocalAudioProvider } from '../ui/audioProvider';
-import { buildEvalCode, extractAudio, youtubeHeaders, infoFromYt, playabilityError, type FetchLike, type MobileVideoInfo, type YtLike } from './youtubeMobile';
+import { buildEvalCode, extractAudio, withNetworkRetry, youtubeHeaders, infoFromYt, playabilityError, type FetchLike, type MobileVideoInfo, type YtLike } from './youtubeMobile';
 
 /** Plateforme mobile, ou null (site web, app ordinateur). */
 export function mobilePlatform(): 'android' | 'ios' | null {
@@ -19,12 +19,12 @@ export function mobilePlatform(): 'android' | 'ios' | null {
 
 // ---------------------------------------------------------------- réseau par Rust
 /** fetch qui passe par Rust : pas de CORS, IP du téléphone. Accepte aussi les objets Request de youtubei.js. */
-const nativeFetch: FetchLike = (url, init) => tauriFetch(url, { ...init, headers: youtubeHeaders(url, init) });
+const nativeFetch: FetchLike = (url, init) => withNetworkRetry(() => tauriFetch(url, { ...init, headers: youtubeHeaders(url, init) }), url);
 const fetchForYt = ((input: RequestInfo | URL, init?: RequestInit) => {
   const url = input instanceof Request ? input.url : String(input);
   // en-têtes de youtubei.js (dans init) complétés ; ceux d'un objet Request seraient filtrés par le navigateur
   const base = init?.headers ?? (input instanceof Request ? input.headers : undefined);
-  return tauriFetch(input instanceof Request ? input : url, { ...init, headers: youtubeHeaders(url, { headers: base }) });
+  return withNetworkRetry(() => tauriFetch(input instanceof Request ? input.clone() : url, { ...init, headers: youtubeHeaders(url, { headers: base }) }), url);
 }) as typeof fetch;
 
 // ---------------------------------------------------------------- déchiffrage dans un Worker

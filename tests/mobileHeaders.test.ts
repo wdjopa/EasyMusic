@@ -20,3 +20,25 @@ describe('requêtes YouTube depuis le téléphone', async () => {
     expect(youtubeHeaders('https://enjoysing.resub.me/api/health').has('origin')).toBe(false);
   });
 });
+
+describe('réseau instable sur le téléphone', async () => {
+  const { withNetworkRetry } = await import('../src/native/youtubeMobile');
+  const noWait = async () => {};
+  it('réessaie une erreur réseau puis réussit', async () => {
+    let n = 0;
+    const r = await withNetworkRetry(async () => {
+      if (++n < 3) throw new Error('error sending request for url (https://www.youtube.com/iframe_api)');
+      return 'ok';
+    }, 'https://www.youtube.com/iframe_api', 3, noWait);
+    expect(r).toBe('ok');
+    expect(n).toBe(3);
+  });
+  it('message clair si le réseau reste coupé', async () => {
+    await expect(withNetworkRetry(async () => { throw new Error('error sending request for url (x)'); }, 'https://www.youtube.com/iframe_api', 3, noWait)).rejects.toThrow(/www\.youtube\.com impossible depuis le téléphone/);
+  });
+  it('ne réessaie pas une vraie réponse d’erreur de YouTube', async () => {
+    let n = 0;
+    await expect(withNetworkRetry(async () => { n++; throw new Error('Request failed with status code 403'); }, 'https://x', 3, noWait)).rejects.toThrow(/403/);
+    expect(n).toBe(1);
+  });
+});

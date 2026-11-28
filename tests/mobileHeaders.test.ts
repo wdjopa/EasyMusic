@@ -34,7 +34,11 @@ describe('réseau instable sur le téléphone', async () => {
     expect(n).toBe(3);
   });
   it('message clair si le réseau reste coupé', async () => {
-    await expect(withNetworkRetry(async () => { throw new Error('error sending request for url (x)'); }, 'https://www.youtube.com/iframe_api', 3, noWait)).rejects.toThrow(/www\.youtube\.com impossible depuis le téléphone/);
+    await expect(withNetworkRetry(async () => { throw new Error('error sending request for url (x)'); }, 'https://www.youtube.com/iframe_api', 3, noWait)).rejects.toThrow(/www\.youtube\.com impossible depuis l’app.*\[détail : error sending request for url \(x\)\]/);
+  });
+  it('garde la raison d’un diagnostic en échec', async () => {
+    const fail = async () => { throw new Error('commande inconnue'); };
+    await expect(withNetworkRetry(async () => { throw new Error('error sending request'); }, 'https://www.youtube.com/', 2, noWait, fail)).rejects.toThrow(/diagnostic impossible : commande inconnue/);
   });
   it('ne réessaie pas une vraie réponse d’erreur de YouTube', async () => {
     let n = 0;

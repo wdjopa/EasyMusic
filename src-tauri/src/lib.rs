@@ -12,6 +12,8 @@ use tauri::webview::{PermissionKind, PermissionResponse};
 
 #[cfg(mobile)]
 mod netdiag;
+#[cfg(mobile)]
+mod androidhttp;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -31,7 +33,10 @@ pub fn run() {
     #[cfg(mobile)]
     let builder = builder
         .plugin(tauri_plugin_http::init())
-        .invoke_handler(tauri::generate_handler![netdiag::diagnostic_reseau]);
+        .invoke_handler(tauri::generate_handler![netdiag::diagnostic_reseau, androidhttp::http_natif]);
+    // Android : requêtes par la pile réseau du téléphone, en secours du module HTTP de Rust
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(androidhttp::init());
     builder
         .run(tauri::generate_context!())
         .expect("erreur au lancement d'EnjoySing");

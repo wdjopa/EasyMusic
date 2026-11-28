@@ -305,7 +305,7 @@ export function youtubeHeaders(url: string, init?: RequestInit): Headers {
 }
 
 // ---------------------------------------------------------------- réseau instable
-const NETWORK_ERROR = /error sending request|connection (?:closed|reset|refused)|timed? ?out|dns|network|tcp connect|unreachable/i;
+const NETWORK_ERROR = /error sending request|connection (?:closed|reset|refused)|timed? ?out|dns|network|tcp connect|unreachable|certificate|tls|handshake/i;
 
 /**
  * Réessaie une requête qui échoue pour une raison RÉSEAU (téléphone qui passe du Wi-Fi à la 4G, mise en veille,
@@ -333,9 +333,10 @@ export async function withNetworkRetry<T>(
         } catch {
           /* adresse brute */
         }
-        const detail = diagnose ? await diagnose(url).catch(() => '') : '';
+        // la cause exacte (et le diagnostic, ou pourquoi il a échoué) reste visible : indispensable pour aider
+        const detail = diagnose ? await diagnose(url).catch((d) => `diagnostic impossible : ${d instanceof Error ? d.message : String(d)}`) : '';
         throw new Error(
-          `Connexion à ${host} impossible depuis le téléphone (réseau coupé ou instable). Vérifiez la connexion Internet et réessayez.${detail ? ` [diagnostic : ${detail}]` : ''}`,
+          `Connexion à ${host} impossible depuis l’app (réseau coupé, ou réseau qui filtre les connexions). Vérifiez la connexion Internet et réessayez. [détail : ${msg}]${detail ? ` [diagnostic : ${detail}]` : ''}`,
         );
       }
       await wait(800 * (i + 1));

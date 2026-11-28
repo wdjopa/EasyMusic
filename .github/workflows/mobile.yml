@@ -105,18 +105,20 @@ jobs:
 
       # Étiquette v* : l'APK rejoint la release de cette version (brouillon créé par la CI ordinateur,
       # ou créé ici), sous un nom fixe que le site de présentation (landing/) sait retrouver.
+      # Lancement à la main : même version que l'app ordinateur (v + version de tauri.conf.json), dont la CI
+      # crée le brouillon de release ; l'étiquette est créée par GitHub à la publication du brouillon.
       - name: Joindre l'APK à la release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
         run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then TAG="$GITHUB_REF_NAME"; else TAG="v$(node -p "require('./src-tauri/tauri.conf.json').version")"; fi
           APK=$(ls dist-android/enjoysing.apk dist-android/enjoysing-test.apk 2>/dev/null | head -1)
           cp "$APK" "$RUNNER_TEMP/EnjoySing-android.apk"
           # les brouillons ne sont pas trouvables par leur étiquette : on cherche dans la liste
           ID=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=50" --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -1)
           if [ -z "$ID" ]; then
-            ID=$(gh api "repos/$GITHUB_REPOSITORY/releases" -f tag_name="$TAG" -f name="EnjoySing ${TAG#v}" -F draft=true \
+            ID=$(gh api "repos/$GITHUB_REPOSITORY/releases" -f tag_name="$TAG" -f name="EnjoySing ${TAG#v}" -F draft=true -f target_commitish="$GITHUB_SHA" \
               -f body="Voir docs/mobile.md et docs/desktop.md pour l'installation." --jq .id)
           fi
           # remplace l'APK s'il y est déjà (nouvel essai de la CI)

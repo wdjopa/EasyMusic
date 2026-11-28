@@ -147,7 +147,13 @@ h1, h2, h3 { letter-spacing: -0.02em; line-height: 1.15; }
 /* ---------------------------------------------------------------- téléchargements */
 .suggest { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: -12px 0 18px; }
 .suggest small { color: var(--muted); }
-.status { color: var(--muted); font-size: 0.92rem; margin: 0 0 22px; min-height: 1.5em; }
+.status { color: var(--muted); font-size: 0.92rem; margin: 0 0 22px; min-height: 1.5em; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.icon { width: 1.5rem; height: 1.5rem; flex: none; }
+.card h3 .icon { width: 26px; height: 26px; }
+.btn .icon { width: 18px; height: 18px; }
+.gh { display: inline-flex; align-items: center; gap: 7px; font-size: 0.88rem; font-weight: 600; color: var(--muted); text-decoration: none; word-break: break-all; }
+.gh:hover { color: var(--accent); }
+.gh .icon { width: 16px; height: 16px; }
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0;

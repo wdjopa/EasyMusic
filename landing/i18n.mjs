@@ -87,6 +87,8 @@ export const LANGS = {
     soon: 'Coming soon',
     notInRelease: 'Not in this version',
 
+    githubLink: 'Download from GitHub',
+    githubAll: 'All downloads on GitHub',
     androidText: 'An APK you install directly (EnjoySing is not on Google Play). Android 8 or newer.',
     androidBtn: 'Download the APK',
     androidHow: 'How to install',
@@ -226,6 +228,8 @@ export const LANGS = {
     soon: 'Bientôt disponible',
     notInRelease: 'Pas dans cette version',
 
+    githubLink: 'Télécharger depuis GitHub',
+    githubAll: 'Tous les téléchargements sur GitHub',
     androidText: 'Un fichier APK à installer directement (EnjoySing n’est pas sur Google Play). Android 8 ou plus récent.',
     androidBtn: 'Télécharger l’APK',
     androidHow: 'Comment l’installer',
@@ -284,5 +288,5 @@ export const LANGS = {
 /** Textes repris par le script de la page (statut des téléchargements). */
 export const JS_KEYS = [
   'statusLoading', 'statusVersion', 'statusPublished', 'statusNone', 'statusEmpty', 'statusError',
-  'downloadFor', 'soon', 'notInRelease', 'iosBtnReady',
+  'downloadFor', 'soon', 'notInRelease', 'iosBtnReady', 'githubLink',
 ];

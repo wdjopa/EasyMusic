@@ -166,13 +166,15 @@
             <a class="btn primary big" id="suggest-btn" href="#"></a>
             <small id="suggest-note"></small>
           </div>
-          <p class="status" id="status">{{statusLoading}}</p>
+          <p class="status"><span id="status">{{statusLoading}}</span>
+            <a class="btn small gh-all" id="gh-all" href="https://github.com/{{repo}}/releases">{{icon:github}} {{githubAll}}</a></p>
 
           <div class="grid three downloads" id="downloads">
             <article class="card" data-os="android">
-              <h3><span class="ico">🤖</span> Android</h3>
+              <h3>{{icon:android}} Android</h3>
               <p>{{androidText}}</p>
               <div class="links"><a class="btn primary" data-asset="android" href="#" aria-disabled="true">{{androidBtn}}</a></div>
+              <a class="gh" data-gh="android" href="https://github.com/{{repo}}/releases/latest">{{icon:github}} <span>{{githubLink}}</span></a>
               <details>
                 <summary>{{androidHow}}</summary>
                 <ol><li>{{androidStep1}}</li><li>{{androidStep2}}</li><li>{{androidStep3}}</li></ol>
@@ -180,7 +182,7 @@
             </article>
 
             <article class="card" data-os="ios">
-              <h3><span class="ico">🍎</span> {{iosTitle}}</h3>
+              <h3>{{icon:apple}} {{iosTitle}}</h3>
               <p>{{iosText}}</p>
               <div class="links"><a class="btn primary" id="testflight" href="#" aria-disabled="true">{{iosBtn}}</a></div>
               <details>
@@ -190,19 +192,21 @@
             </article>
 
             <article class="card" data-os="windows">
-              <h3><span class="ico">🪟</span> Windows</h3>
+              <h3>{{icon:windows}} Windows</h3>
               <p>{{windowsText}}</p>
               <div class="links">
                 <a class="btn primary" data-asset="windows" href="#" aria-disabled="true">{{windowsBtn}}</a>
                 <a class="btn" data-asset="windows-msi" href="#" hidden>.msi</a>
               </div>
+              <a class="gh" data-gh="windows" href="https://github.com/{{repo}}/releases/latest">{{icon:github}} <span>{{githubLink}}</span></a>
               <details><summary>{{windowsHelp}}</summary><p>{{windowsHelpText}}</p></details>
             </article>
 
             <article class="card" data-os="mac">
-              <h3><span class="ico">💻</span> macOS</h3>
+              <h3>{{icon:apple}} macOS</h3>
               <p>{{macText}}</p>
               <div class="links"><a class="btn primary" data-asset="mac" href="#" aria-disabled="true">{{macBtn}}</a></div>
+              <a class="gh" data-gh="mac" href="https://github.com/{{repo}}/releases/latest">{{icon:github}} <span>{{githubLink}}</span></a>
               <details>
                 <summary>{{macHelp}}</summary>
                 <p>{{macHelpText}}</p>
@@ -211,13 +215,14 @@
             </article>
 
             <article class="card" data-os="linux">
-              <h3><span class="ico">🐧</span> Linux</h3>
+              <h3>{{icon:linux}} Linux</h3>
               <p>{{linuxText}}</p>
               <div class="links">
                 <a class="btn primary" data-asset="linux-appimage" href="#" aria-disabled="true">AppImage</a>
                 <a class="btn" data-asset="linux-deb" href="#" hidden>.deb</a>
                 <a class="btn" data-asset="linux-rpm" href="#" hidden>.rpm</a>
               </div>
+              <a class="gh" data-gh="linux" href="https://github.com/{{repo}}/releases/latest">{{icon:github}} <span>{{githubLink}}</span></a>
               <details>
                 <summary>{{linuxHelp}}</summary>
                 <p>{{linuxHelpText}}</p>
@@ -226,7 +231,7 @@
             </article>
 
             <article class="card" data-os="web">
-              <h3><span class="ico">🌐</span> {{webTitle}} <span class="tag">{{webTag}}</span></h3>
+              <h3>{{icon:web}} {{webTitle}} <span class="tag">{{webTag}}</span></h3>
               <p>{{webText}}</p>
               <div class="links">
                 <a class="btn primary" href="{{appUrl}}">{{webBtn}}</a>

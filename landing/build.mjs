@@ -21,7 +21,14 @@ const config = {
   testflight: process.env.TESTFLIGHT_URL ?? '',
 };
 
-const template = readFileSync(join(here, 'template.html'), 'utf8');
+// Icônes des appareils (SVG inline, couleur du texte) : {{icon:android}} dans template.html
+const icon = (name) =>
+  readFileSync(join(here, 'icons', `${name}.svg`), 'utf8')
+    .trim()
+    .replace(/<title>.*?<\/title>/, '')
+    .replace(' role="img"', '')
+    .replace('<svg ', '<svg class="icon" aria-hidden="true" focusable="false" ' + (name === 'web' ? '' : 'fill="currentColor" '));
+const template = readFileSync(join(here, 'template.html'), 'utf8').replace(/\{\{icon:(\w+)\}\}/g, (_, n) => icon(n));
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'static'), out, { recursive: true });

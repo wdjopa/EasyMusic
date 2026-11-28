@@ -99,6 +99,15 @@
           el.title = a.name + ' · ' + size(a.size);
         });
       });
+      // lien GitHub sous chaque carte : le fichier lui-même, avec son nom
+      Object.keys(PRIMARY).forEach(function (os_) {
+        var a = pick(assets, PRIMARY[os_]);
+        var gh = document.querySelector('[data-gh="' + os_ + '"]');
+        if (!a || !gh) return;
+        gh.href = a.browser_download_url;
+        gh.querySelector('span').textContent = a.name + ' · ' + size(a.size);
+        gh.title = T.githubLink;
+      });
       if (!found) return noFiles(T.statusEmpty);
 
       var v = (rel.tag_name || '').replace(/^v/, '');

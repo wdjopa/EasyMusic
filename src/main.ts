@@ -45,6 +45,20 @@ import { createPlayer, parseYouTubeId, YT_EMBED_BLOCKED, YT_OWNER_BLOCKED, YT_ST
 import { encodeWav } from './ui/wav';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+/**
+ * Met à jour un texte / contenu SEULEMENT s'il change. Indispensable pour ce qui est rafraîchi à chaque
+ * image : remplacer le texte d'un bouton 60 fois par seconde fait perdre les clics posés sur ce texte
+ * (le nœud appuyé a disparu au relâchement) — ex. le ▶ blanc du bouton lecture.
+ */
+function setText(el: HTMLElement, text: string) {
+  if (el.textContent !== text) el.textContent = text;
+}
+function setHtml(el: HTMLElement, html: string) {
+  if (el.dataset.html !== html) {
+    el.innerHTML = html;
+    el.dataset.html = html;
+  }
+}
 
 // app Tauri : fournisseur d'audio natif, chargé seulement dans l'app
 // (ordinateur : yt-dlp ; Android / iOS : youtubei.js depuis le téléphone, voir native/mobile.ts)
@@ -2517,7 +2531,7 @@ function updateGauge() {
   const nextLabel = next
     ? `<span class="soon">${last ? '➜ ' : ''}${chordName(shapeChord(next.chord), flats())} dans ${remaining.toFixed(1).replace('.', ',')} s</span>`
     : '';
-  $('gauge-label').innerHTML = label + nextLabel;
+  setHtml($('gauge-label'), label + nextLabel);
 }
 
 // ---------------------------------------------------------------- commandes de lecture
@@ -2589,13 +2603,13 @@ function updateTransport() {
   if (!ready) return;
   const playing = isMediaPlaying();
   const btn = $('tp-play');
-  btn.textContent = playing ? '⏸' : '▶';
+  setText(btn, playing ? '⏸' : '▶');
   btn.setAttribute('aria-label', playing ? 'Pause' : 'Lecture');
   const d = mediaDuration();
   seekBar.max = String(Math.max(1, d));
   if (!seeking) {
     seekBar.value = String(mediaTime());
-    $('tp-time').textContent = `${formatTime(mediaTime())} / ${formatTime(d)}`;
+    setText($('tp-time'), `${formatTime(mediaTime())} / ${formatTime(d)}`);
   }
 }
 
@@ -2810,8 +2824,8 @@ function updateMiniNow() {
 window.addEventListener('resize', updateMiniNow);
 function tickMini() {
   if ($('mini-now').hidden) return;
-  $('mini-chord').textContent = $('now-chord').textContent;
-  $('mini-next').textContent = $('next-chord').textContent;
+  setText($('mini-chord'), $('now-chord').textContent ?? '');
+  setText($('mini-next'), $('next-chord').textContent ?? '');
   const seg = state.currentIdx >= 0 ? segs[state.currentIdx] : undefined;
   const r = seg ? Math.max(0, Math.min(1, (mediaTime() - seg.start) / (seg.end - seg.start))) : 0;
   $('mini-fill').style.width = `${r * 100}%`;

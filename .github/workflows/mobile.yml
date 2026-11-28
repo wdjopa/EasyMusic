@@ -175,7 +175,21 @@ jobs:
           mkdir -p ~/.appstoreconnect/private_keys
           echo "$APPLE_API_KEY_CONTENT" > ~/.appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY}.p8
           export APPLE_API_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY}.p8
-          npx tauri ios build --export-method app-store-connect --ci
+          # numéro de build unique à chaque envoi (App Store Connect refuse deux fois le même)
+          npx tauri ios build --export-method app-store-connect --ci \
+            --config "{\"bundle\":{\"iOS\":{\"bundleVersion\":\"${GITHUB_RUN_NUMBER}\"}}}"
+
+      # Envoi vers TestFlight (App Store Connect) avec la même clé d'API : la version apparaît ensuite
+      # dans TestFlight après le traitement par Apple (10 à 30 min).
+      - name: Envoi vers TestFlight
+        if: env.HAS_APPLE_TEAM == 'true' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          IPA=$(find src-tauri/gen/apple/build -name '*.ipa' | head -1)
+          if [ -z "$IPA" ]; then echo "::error::Aucun fichier .ipa produit."; exit 1; fi
+          xcrun altool --upload-app --type ios --file "$IPA" --apiKey "$APPLE_API_KEY" --apiIssuer "$APPLE_API_ISSUER"
 
       - uses: actions/upload-artifact@v7
         with:

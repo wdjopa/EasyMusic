@@ -186,10 +186,21 @@ describe('extraction complète (clients successifs)', () => {
     expect(yt.session.player?.po_token).toBe('JETON'); // ajouté aux adresses (pot=) par youtubei.js
   });
 
-  it('s’arrête tout de suite pour une vidéo supprimée ou privée', async () => {
-    const { yt, asked } = fakeYt({ ANDROID_VR: { basic_info: {}, playability_status: { status: 'ERROR', reason: 'Cette vidéo n’est plus disponible' } } });
-    await expect(extractAudio('abcdefghijk', { yt, fetch: async () => new Response(''), ios: true }, () => {})).rejects.toThrow('plus disponible');
-    expect(asked).toHaveLength(1);
+  it('vidéo supprimée ou privée pour tous les clients : affiche la raison de YouTube, seule', async () => {
+    const gone: YtVideoInfo = { basic_info: {}, playability_status: { status: 'ERROR', reason: 'Cette vidéo n’est plus disponible' } };
+    const { yt, asked } = fakeYt({ ANDROID_VR: gone, TV: gone });
+    await expect(extractAudio('abcdefghijk', { yt, fetch: async () => new Response(''), ios: true, clients: ['ANDROID_VR', 'TV'] }, () => {})).rejects.toThrow(/^Cette vidéo n’est plus disponible$/);
+    expect(asked).toHaveLength(2);
+  });
+
+  it('« La page doit être actualisée » pour un client : essaie le suivant (cas réel sur Android)', async () => {
+    const data = bytes(3000);
+    const m4a = fmt(140, 'audio/mp4; codecs="mp4a.40.2"', { content_length: data.length, url: 'https://g/tv', decipher: async () => 'https://g/tv' });
+    const reload: YtVideoInfo = { basic_info: {}, playability_status: { status: 'UNPLAYABLE', reason: 'La page doit être actualisée.' } };
+    const { yt, asked } = fakeYt({ ANDROID_VR: reload, TV: ok([m4a]) });
+    const r = await extractAudio('abcdefghijk', { yt, fetch: fakeGooglevideo(data).fetchFn, ios: false }, () => {});
+    expect(r.client).toBe('TV');
+    expect(asked.map((a) => a.client)).toEqual(['ANDROID_VR', 'TV']);
   });
 
   it('résume les échecs de chaque client', async () => {

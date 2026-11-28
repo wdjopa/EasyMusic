@@ -66,6 +66,8 @@ export class Annule extends Error {
 }
 /** Erreur propre à un client : on peut essayer le suivant. */
 class ClientRefuse extends Error {}
+/** Refus annoncé par YouTube pour ce client (playability_status) : on essaie aussi le suivant. */
+class RefusYouTube extends ClientRefuse {}
 
 // ---------------------------------------------------------------- choix du format
 /**
@@ -213,13 +215,16 @@ export interface ExtractResult {
 
 /**
  * Essaie les clients un par un jusqu'à obtenir un format lisible ET téléchargeable.
- * Les erreurs « définitives » (vidéo privée, supprimée…) arrêtent tout ; les refus propres à un client
- * (pas de format, HTTP 403, jeton PO exigé…) font passer au client suivant.
+ * Seuls les directs arrêtent tout. Un refus de YouTube (« vidéo indisponible », « La page doit être
+ * actualisée »…) dépend souvent du client : on essaie le suivant. Si tous refusent pour la même raison
+ * (vidéo vraiment supprimée ou privée), c'est cette raison seule qui est affichée.
  */
 export async function extractAudio(videoId: string, deps: ExtractDeps, onProgress: Progress, signal?: Signal): Promise<ExtractResult> {
   const log = deps.log ?? (() => {});
   const erreurs: string[] = [];
   let definitive: string | null = null;
+  const raisons = new Set<string>(); // refus de YouTube, par client
+  let autres = 0; // échecs d'une autre nature (réseau, format, 403…)
   for (const client of deps.clients ?? CLIENTS_PAR_DEFAUT) {
     if (signal?.cancelled) throw new Annule();
     try {
@@ -236,9 +241,8 @@ export async function extractAudio(videoId: string, deps: ExtractDeps, onProgres
       const info = await deps.yt.getBasicInfo(videoId, { client, ...(po_token ? { po_token } : {}) });
       const bloque = playabilityError(info);
       if (bloque) {
-        // « LOGIN_REQUIRED » / robot : un autre client peut passer ; « UNPLAYABLE » (supprimée, privée) : non
-        if (info.playability_status?.status === 'UNPLAYABLE' || info.playability_status?.status === 'ERROR') definitive = bloque;
-        throw new ClientRefuse(bloque);
+        raisons.add(bloque);
+        throw new RefusYouTube(bloque);
       }
       if (info.basic_info.is_live) {
         definitive = 'Les directs ne sont pas pris en charge.';
@@ -259,10 +263,13 @@ export async function extractAudio(videoId: string, deps: ExtractDeps, onProgres
       const msg = (e as Error).message;
       log(`${client} : ${msg}`);
       erreurs.push(`${client} : ${msg}`);
+      if (!(e instanceof RefusYouTube)) autres++;
       if (definitive) throw new Error(definitive);
       // sinon (refus propre au client, erreur réseau ou d'analyse) : client suivant
     }
   }
+  // tous les clients ont reçu le même refus : c'est la vidéo elle-même (supprimée, privée, réservée…)
+  if (autres === 0 && raisons.size === 1) throw new Error([...raisons][0]);
   throw new Error(`Impossible de récupérer le son depuis le téléphone (${erreurs.join(' ; ')})`);
 }
 

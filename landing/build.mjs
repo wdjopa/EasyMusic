@@ -33,11 +33,34 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'static'), out, { recursive: true });
 
+// Clavier de piano (3 octaves) et formes d'onde, en SVG
+function piano() {
+  const W = 21;
+  let white = '', black = '';
+  for (let i = 0; i < W; i++) white += `<rect x="${i * 10 + 0.5}" y="0" width="9" height="52" rx="1.5" fill="#efe8dc"/>`;
+  for (let i = 0; i < W - 1; i++) if ([0, 1, 3, 4, 5].includes(i % 7)) black += `<rect x="${i * 10 + 6.5}" y="0" width="7" height="31" rx="1.2" fill="#141210"/>`;
+  return `<svg viewBox="0 0 ${W * 10} 52" preserveAspectRatio="none">${white}${black}</svg>`;
+}
+function wave(seed, quiet = false) {
+  let x = seed, bars = '';
+  const rnd = () => ((x = (x * 9301 + 49297) % 233280) / 233280);
+  const grad = '<defs><linearGradient id="wavegrad" x1="0" x2="1"><stop offset="0" stop-color="#f08048"/><stop offset="1" stop-color="#e3507a"/></linearGradient></defs>';
+  for (let i = 0; i < 90; i++) {
+    const env = 0.35 + 0.65 * Math.abs(Math.sin(i / 9));
+    const h = Math.max(2, (quiet ? 0.35 : 1) * 60 * env * (0.35 + 0.65 * rnd()));
+    bars += `<rect x="${i * 4}" y="${32 - h / 2}" width="2.4" height="${h}" rx="1.2"/>`;
+  }
+  return `<svg viewBox="0 0 360 64" preserveAspectRatio="none">${quiet ? '' : grad}${bars}</svg>`;
+}
+
 for (const [code, t] of Object.entries(LANGS)) {
   const vars = {
     ...t,
     ...config,
     appHost: new URL(config.appUrl).host,
+    piano: piano(),
+    waveBand: wave(7),
+    waveVoice: wave(42, true),
     otherLangCode: code === 'en' ? 'fr' : 'en',
     config: JSON.stringify({
       lang: code,

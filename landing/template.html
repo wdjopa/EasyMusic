@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>{{title}}</title>
     <meta name="description" content="{{description}}" />
-    <meta name="theme-color" content="#d9622b" />
+    <meta name="theme-color" content="#0e0c0a" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="canonical" href="{{siteUrl}}{{path}}" />
@@ -25,249 +25,293 @@
     <meta name="twitter:title" content="{{title}}" />
     <meta name="twitter:description" content="{{description}}" />
     <meta name="twitter:image" content="{{siteUrl}}/og.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
     <header class="topbar">
       <div class="wrap bar">
-        <a class="brand" href="{{path}}"><img src="/favicon.svg" alt="" width="30" height="30" />EnjoySing</a>
+        <a class="brand" href="{{path}}" aria-label="EnjoySing"><img src="/favicon.svg" alt="" width="28" height="28" /><span>Enjoy<b>Sing</b></span></a>
         <nav class="nav">
           <a href="#features">{{navFeatures}}</a>
-          <a href="#why">{{navWhy}}</a>
+          <a href="#how">{{navHow}}</a>
           <a href="#download">{{navDownload}}</a>
         </nav>
         <div class="bar-actions">
           <a class="lang" href="{{otherLangHref}}" hreflang="{{otherLangCode}}" data-lang-switch>{{otherLang}}</a>
-          <a class="btn small primary" href="#download">{{navDownload}}</a>
+          <a class="btn primary small" href="#download">{{navDownload}}</a>
         </div>
       </div>
     </header>
 
     <main>
-      <!-- ------------------------------------------------------------ accroche -->
+      <!-- ============================================================ accroche -->
       <section class="hero">
+        <div class="glow g1"></div>
+        <div class="glow g2"></div>
         <div class="wrap hero-grid">
           <div class="hero-copy">
             <p class="eyebrow">{{heroEyebrow}}</p>
             <h1>{{heroTitle}}</h1>
             <p class="lead">{{heroLead}}</p>
             <div class="cta">
-              <a class="btn primary big" id="hero-cta" href="#download">{{heroCta}}</a>
-              <a class="btn big" href="{{appUrl}}">{{heroCtaSecondary}}</a>
+              <a class="btn primary big" id="hero-cta" href="#download"><span class="hero-cta-icon" id="hero-cta-icon"></span><span id="hero-cta-text">{{heroCta}}</span></a>
+              <a class="btn ghost big" href="{{appUrl}}">{{heroCtaWeb}}</a>
             </div>
             <p class="note">{{heroNote}}</p>
           </div>
 
-          <!-- maquette de l'app (dessinée en CSS : aucune capture à tenir à jour) -->
-          <div class="mock" aria-hidden="true">
+          <!-- maquette fidèle à l'app (dessinée en HTML : nette à toutes les tailles) -->
+          <div class="stage" aria-hidden="true">
             <div class="phone">
-              <div class="phone-top">
-                <div class="thumb"></div>
-                <div>
-                  <div class="mock-title">{{mockSong}}</div>
-                  <div class="mock-sub">{{mockKey}} : G → <b>E</b> · capo 0</div>
+              <div class="notch"></div>
+              <div class="screen">
+                <div class="app-head">
+                  <div class="cover"></div>
+                  <div class="app-meta"><b>{{mockTitle}}</b><span>{{mockArtist}}</span></div>
                 </div>
+                <div class="seg">
+                  <span>♪ {{mockOriginal}} <small>G</small></span>
+                  <span class="on">🎤 {{mockMine}} <small>E</small></span>
+                </div>
+                <div class="chordcard">
+                  <div>
+                    <small>{{mockNow}}</small>
+                    <div class="big">E</div>
+                  </div>
+                  <div class="next">
+                    <small>{{mockNext}}</small>
+                    <div>C#m</div>
+                  </div>
+                  <svg class="diagram" viewBox="0 0 60 74">
+                    <g stroke="currentColor" stroke-width="1.2" opacity=".5" fill="none">
+                      <path d="M6 10h48" stroke-width="3.5" opacity="1" />
+                      <path d="M6 24h48M6 38h48M6 52h48M6 66h48M6 10v56M15.6 10v56M25.2 10v56M34.8 10v56M44.4 10v56M54 10v56" />
+                    </g>
+                    <g class="dots"><circle cx="15.6" cy="31" r="4.4" /><circle cx="25.2" cy="31" r="4.4" /><circle cx="34.8" cy="17" r="4.4" /></g>
+                  </svg>
+                  <div class="beats"><i class="d"></i><i class="d"></i><i class="c"></i><i></i></div>
+                </div>
+                <div class="lyrics">
+                  <p class="past"><span class="ch">A</span>{{mockLine0}}</p>
+                  <p class="cur"><span class="ch">E</span>{{mockLine1}}</p>
+                  <p><span class="ch">C#m</span>{{mockLine2}}</p>
+                </div>
+                <div class="lane">
+                  <svg viewBox="0 0 300 74" preserveAspectRatio="none">
+                    <g class="target"><rect x="8" y="46" width="52" height="7" rx="3.5" /><rect x="66" y="34" width="44" height="7" rx="3.5" /><rect x="116" y="24" width="72" height="7" rx="3.5" /><rect x="194" y="34" width="46" height="7" rx="3.5" /><rect x="246" y="46" width="46" height="7" rx="3.5" /></g>
+                    <path class="voice" d="M10 50 C28 48 48 50 60 49 S80 38 106 37 S144 27 186 28 S206 37 226 37" />
+                    <circle class="vdot" cx="226" cy="37" r="4.5" />
+                  </svg>
+                  <span class="tuned">● {{mockTuned}}</span>
+                </div>
+                <div class="transport"><span class="play">▶</span><div class="bar"><i></i></div><small>1:12</small></div>
               </div>
-              <div class="chord-now">
-                <span class="chord-big">E</span>
-                <svg class="diagram" viewBox="0 0 60 70">
-                  <g stroke="currentColor" stroke-width="1" opacity=".55">
-                    <line x1="5" y1="8" x2="55" y2="8" stroke-width="3" />
-                    <line x1="5" y1="22" x2="55" y2="22" /><line x1="5" y1="36" x2="55" y2="36" />
-                    <line x1="5" y1="50" x2="55" y2="50" /><line x1="5" y1="64" x2="55" y2="64" />
-                    <line x1="5" y1="8" x2="5" y2="64" /><line x1="15" y1="8" x2="15" y2="64" />
-                    <line x1="25" y1="8" x2="25" y2="64" /><line x1="35" y1="8" x2="35" y2="64" />
-                    <line x1="45" y1="8" x2="45" y2="64" /><line x1="55" y1="8" x2="55" y2="64" />
-                  </g>
-                  <g class="dot"><circle cx="15" cy="29" r="4.5" /><circle cx="25" cy="29" r="4.5" /><circle cx="35" cy="15" r="4.5" /></g>
-                </svg>
-                <div class="chord-next"><span>C#m</span><span>A</span><span>B</span></div>
-              </div>
-              <div class="lyrics">
-                <p><span class="c">E</span>{{mockLine1}}</p>
-                <p class="cur"><span class="c">C#m</span>{{mockLine2}}</p>
-              </div>
-              <div class="lane">
-                <svg viewBox="0 0 300 70" preserveAspectRatio="none">
-                  <g class="target"><rect x="10" y="40" width="50" height="6" rx="3" /><rect x="66" y="30" width="40" height="6" rx="3" /><rect x="112" y="22" width="70" height="6" rx="3" /><rect x="188" y="30" width="44" height="6" rx="3" /><rect x="238" y="40" width="52" height="6" rx="3" /></g>
-                  <path class="voice" d="M12 44 C30 42, 50 44, 60 43 S 80 33, 104 33 S 140 24, 180 25 S 200 33, 222 33" />
-                  <circle class="voice-dot" cx="222" cy="33" r="4" />
-                </svg>
-                <span class="tuned">● {{mockTuned}}</span>
-              </div>
-              <div class="mock-voice">
-                <span>{{mockVoice}}</span>
-                <div class="range"><i></i></div>
-              </div>
+            </div>
+            <div class="float f-shift">✨ {{mockShift}}</div>
+            <div class="float f-score"><span class="ring"></span>{{mockScore}}</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ le problème -->
+      <section class="pain">
+        <div class="wrap narrow center">
+          <p class="kicker">{{painKicker}}</p>
+          <h2 class="display">{{painTitle}}</h2>
+          <ul class="pains">
+            <li>{{pain1}}</li>
+            <li>{{pain2}}</li>
+            <li>{{pain3}}</li>
+            <li>{{pain4}}</li>
+          </ul>
+          <p class="answer">{{painAnswer}}</p>
+        </div>
+      </section>
+
+      <!-- ============================================================ fonctionnalités -->
+      <section id="features">
+        <!-- 1. tonalité -->
+        <div class="wrap feature">
+          <div class="f-copy">
+            <p class="kicker">{{f1Kicker}}</p>
+            <h2 class="display">{{f1Title}}</h2>
+            <p>{{f1Text}}</p>
+          </div>
+          <div class="f-visual panel" aria-hidden="true">
+            <div class="keyboard">
+              <div class="range r-voice"><span>{{f1Voice}}</span></div>
+              <div class="range r-song"><span>{{f1Song}}</span></div>
+              <div class="range r-moved"><span>{{f1Moved}}</span></div>
+              <div class="keys">{{piano}}</div>
+            </div>
+            <div class="shift-pill">G → <b>E</b> · ✨ {{mockShift}}</div>
+          </div>
+        </div>
+
+        <!-- 2. accords et paroles -->
+        <div class="wrap feature rev">
+          <div class="f-copy">
+            <p class="kicker">{{f2Kicker}}</p>
+            <h2 class="display">{{f2Title}}</h2>
+            <p>{{f2Text}}</p>
+          </div>
+          <div class="f-visual panel sheet" aria-hidden="true">
+            <div class="chips"><span>A</span><span class="on">E</span><span>C#m</span><span>B</span><span>A</span><span>E</span></div>
+            <p class="past"><span class="ch">A</span>{{mockLine0}}</p>
+            <p class="cur"><span class="ch">E</span>{{mockLine1}}</p>
+            <p><span class="ch">C#m</span>{{mockLine2}}</p>
+            <div class="staff">
+              <svg viewBox="0 0 320 70">
+                <g stroke="currentColor" opacity=".35"><path d="M0 14h320M0 26h320M0 38h320M0 50h320M0 62h320" /></g>
+                <g class="notes"><ellipse cx="40" cy="44" rx="6" ry="4.5" /><ellipse cx="80" cy="38" rx="6" ry="4.5" /><ellipse cx="120" cy="32" rx="6" ry="4.5" /><ellipse cx="160" cy="26" rx="6" ry="4.5" /><ellipse cx="200" cy="32" rx="6" ry="4.5" /><ellipse cx="240" cy="38" rx="6" ry="4.5" /><ellipse cx="280" cy="44" rx="6" ry="4.5" /></g>
+                <g stroke="currentColor" stroke-width="1.6" class="stems"><path d="M46 44V18M86 38V12M126 32V6M154 26v26M194 32v26M234 38v26M274 44v26" /></g>
+              </svg>
             </div>
           </div>
         </div>
-      </section>
 
-      <!-- ------------------------------------------------------------ problèmes -->
-      <section class="section" id="why">
-        <div class="wrap">
-          <p class="kicker">{{problemsKicker}}</p>
-          <h2>{{problemsTitle}}</h2>
-          <div class="grid four">
-            <div class="problem"><span class="emoji">😣</span><h3>{{p1Title}}</h3><p>{{p1Text}}</p></div>
-            <div class="problem"><span class="emoji">📝</span><h3>{{p2Title}}</h3><p>{{p2Text}}</p></div>
-            <div class="problem"><span class="emoji">🎤</span><h3>{{p3Title}}</h3><p>{{p3Text}}</p></div>
-            <div class="problem"><span class="emoji">🎯</span><h3>{{p4Title}}</h3><p>{{p4Text}}</p></div>
+        <!-- 3. coaching -->
+        <div class="wrap feature">
+          <div class="f-copy">
+            <p class="kicker">{{f3Kicker}}</p>
+            <h2 class="display">{{f3Title}}</h2>
+            <p>{{f3Text}}</p>
+          </div>
+          <div class="f-visual panel coach" aria-hidden="true">
+            <div class="lane big">
+              <svg viewBox="0 0 300 120" preserveAspectRatio="none">
+                <g class="target"><rect x="8" y="80" width="56" height="9" rx="4.5" /><rect x="70" y="60" width="46" height="9" rx="4.5" /><rect x="122" y="40" width="70" height="9" rx="4.5" /><rect x="198" y="60" width="44" height="9" rx="4.5" /><rect x="248" y="80" width="44" height="9" rx="4.5" /></g>
+                <path class="voice" d="M10 85 C30 83 50 86 64 84 S84 66 112 64 S150 38 190 45 S214 64 238 65 S262 84 290 84" />
+              </svg>
+              <span class="tuned">● {{mockTuned}}</span>
+            </div>
+            <div class="score">
+              <div class="donut"><span>92%</span></div>
+              <div class="bars"><i style="--h: 90%"></i><i style="--h: 100%"></i><i style="--h: 72%" class="warn"></i><i style="--h: 95%"></i><i style="--h: 88%"></i><i style="--h: 100%"></i><i style="--h: 60%" class="warn"></i><i style="--h: 97%"></i></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. karaoké -->
+        <div class="wrap feature rev">
+          <div class="f-copy">
+            <p class="kicker">{{f4Kicker}}</p>
+            <h2 class="display">{{f4Title}}</h2>
+            <p>{{f4Text}}</p>
+          </div>
+          <div class="f-visual panel karaoke" aria-hidden="true">
+            <div class="seg three"><span>{{f4Full}}</span><span class="on">🎤 {{f4Karaoke}}</span><span>{{f4Vocals}}</span></div>
+            <div class="wave">
+              <div class="track t-band">{{waveBand}}<small>{{f4Band}}</small></div>
+              <div class="track t-voice">{{waveVoice}}<small>{{f4VoiceMuted}}</small></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- le reste -->
+        <div class="wrap more">
+          <h3 class="display small">{{moreTitle}}</h3>
+          <div class="grid4">
+            <div><span class="mi">🐢</span><h4>{{m1Title}}</h4><p>{{m1Text}}</p></div>
+            <div><span class="mi">🎼</span><h4>{{m2Title}}</h4><p>{{m2Text}}</p></div>
+            <div><span class="mi">📚</span><h4>{{m3Title}}</h4><p>{{m3Text}}</p></div>
+            <div><span class="mi">🔒</span><h4>{{m4Title}}</h4><p>{{m4Text}}</p></div>
           </div>
         </div>
       </section>
 
-      <!-- ------------------------------------------------------------ fonctionnalités -->
-      <section class="section alt" id="features">
+      <!-- ============================================================ étapes -->
+      <section class="how" id="how">
         <div class="wrap">
-          <p class="kicker">{{featuresKicker}}</p>
-          <h2>{{featuresTitle}}</h2>
-          <div class="grid four features">
-            <div class="feature"><span class="ico">🎸</span><h3>{{f1Title}}</h3><p>{{f1Text}}</p></div>
-            <div class="feature"><span class="ico">🎚️</span><h3>{{f2Title}}</h3><p>{{f2Text}}</p></div>
-            <div class="feature"><span class="ico">📜</span><h3>{{f3Title}}</h3><p>{{f3Text}}</p></div>
-            <div class="feature"><span class="ico">🎼</span><h3>{{f4Title}}</h3><p>{{f4Text}}</p></div>
-            <div class="feature"><span class="ico">🎙️</span><h3>{{f5Title}}</h3><p>{{f5Text}}</p></div>
-            <div class="feature"><span class="ico">📈</span><h3>{{f6Title}}</h3><p>{{f6Text}}</p></div>
-            <div class="feature"><span class="ico">🐢</span><h3>{{f7Title}}</h3><p>{{f7Text}}</p></div>
-            <div class="feature"><span class="ico">🔒</span><h3>{{f8Title}}</h3><p>{{f8Text}}</p></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ------------------------------------------------------------ étapes -->
-      <section class="section">
-        <div class="wrap">
-          <p class="kicker">{{stepsKicker}}</p>
-          <h2>{{stepsTitle}}</h2>
+          <p class="kicker center">{{howKicker}}</p>
+          <h2 class="display center">{{howTitle}}</h2>
           <ol class="steps">
-            <li><b>1</b><h3>{{s1Title}}</h3><p>{{s1Text}}</p></li>
-            <li><b>2</b><h3>{{s2Title}}</h3><p>{{s2Text}}</p></li>
-            <li><b>3</b><h3>{{s3Title}}</h3><p>{{s3Text}}</p></li>
+            <li><b>1</b><h4>{{s1Title}}</h4><p>{{s1Text}}</p></li>
+            <li><b>2</b><h4>{{s2Title}}</h4><p>{{s2Text}}</p></li>
+            <li><b>3</b><h4>{{s3Title}}</h4><p>{{s3Text}}</p></li>
           </ol>
-          <div class="callout">
-            <span class="ico">📱</span>
-            <div>
-              <p class="kicker">{{appsKicker}}</p>
-              <h3>{{appsTitle}}</h3>
-              <p>{{appsText}}</p>
-            </div>
-          </div>
         </div>
       </section>
 
-      <!-- ------------------------------------------------------------ téléchargements -->
-      <section class="section alt" id="download">
+      <!-- ============================================================ téléchargements -->
+      <section class="download" id="download">
+        <div class="glow g3"></div>
         <div class="wrap">
-          <p class="kicker">{{downloadKicker}}</p>
-          <h2>{{downloadTitle}}</h2>
-          <div class="suggest" id="suggest" hidden>
-            <a class="btn primary big" id="suggest-btn" href="#"></a>
-            <small id="suggest-note"></small>
-          </div>
-          <p class="status"><span id="status">{{statusLoading}}</span>
-            <a class="btn small gh-all" id="gh-all" href="https://github.com/{{repo}}/releases">{{icon:github}} {{githubAll}}</a></p>
+          <p class="kicker center">{{dlKicker}}</p>
+          <h2 class="display center">{{dlTitle}}</h2>
+          <p class="lead center">{{dlLead}}</p>
+          <p class="dl-status center" id="dl-status">{{dlLoading}}</p>
 
-          <div class="grid three downloads" id="downloads">
-            <article class="card" data-os="android">
-              <h3>{{icon:android}} Android</h3>
-              <p>{{androidText}}</p>
-              <div class="links"><a class="btn primary" data-asset="android" href="#" aria-disabled="true">{{androidBtn}}</a></div>
-              <a class="gh" data-gh="android" href="https://github.com/{{repo}}/releases/latest">{{icon:github}} <span>{{githubLink}}</span></a>
-              <details>
-                <summary>{{androidHow}}</summary>
-                <ol><li>{{androidStep1}}</li><li>{{androidStep2}}</li><li>{{androidStep3}}</li></ol>
-              </details>
+          <div class="devices" id="devices">
+            <article class="device" data-os="ios">
+              <div class="dev-icon">{{icon:apple}}</div>
+              <h3>{{iosTitle}}</h3>
+              <p class="sub">{{iosSub}}</p>
+              <a class="btn primary" id="testflight" href="#" aria-disabled="true">{{btnSoon}}</a>
+              <p class="tip">{{iosTip}}</p>
             </article>
-
-            <article class="card" data-os="ios">
-              <h3>{{icon:apple}} {{iosTitle}}</h3>
-              <p>{{iosText}}</p>
-              <div class="links"><a class="btn primary" id="testflight" href="#" aria-disabled="true">{{iosBtn}}</a></div>
-              <details>
-                <summary>{{iosMeanwhile}}</summary>
-                <p>{{iosMeanwhileText}} <a href="{{appUrl}}">{{appHost}}</a></p>
-              </details>
+            <article class="device" data-os="android">
+              <div class="dev-icon">{{icon:android}}</div>
+              <h3>Android</h3>
+              <p class="sub">{{androidSub}}</p>
+              <a class="btn primary" data-asset="android" href="#" aria-disabled="true">{{btnSoon}}</a>
+              <p class="tip">{{androidTip}}</p>
             </article>
-
-            <article class="card" data-os="windows">
-              <h3>{{icon:windows}} Windows</h3>
-              <p>{{windowsText}}</p>
-              <div class="links">
-                <a class="btn primary" data-asset="windows" href="#" aria-disabled="true">{{windowsBtn}}</a>
-                <a class="btn" data-asset="windows-msi" href="#" hidden>.msi</a>
-              </div>
-              <a class="gh" data-gh="windows" href="https://github.com/{{repo}}/releases/latest">{{icon:github}} <span>{{githubLink}}</span></a>
-              <details><summary>{{windowsHelp}}</summary><p>{{windowsHelpText}}</p></details>
+            <article class="device" data-os="mac">
+              <div class="dev-icon">{{icon:apple}}</div>
+              <h3>Mac</h3>
+              <p class="sub">{{macSub}}</p>
+              <a class="btn primary" data-asset="mac" href="#" aria-disabled="true">{{btnSoon}}</a>
+              <p class="tip">{{macTip}}</p>
             </article>
-
-            <article class="card" data-os="mac">
-              <h3>{{icon:apple}} macOS</h3>
-              <p>{{macText}}</p>
-              <div class="links"><a class="btn primary" data-asset="mac" href="#" aria-disabled="true">{{macBtn}}</a></div>
-              <a class="gh" data-gh="mac" href="https://github.com/{{repo}}/releases/latest">{{icon:github}} <span>{{githubLink}}</span></a>
-              <details>
-                <summary>{{macHelp}}</summary>
-                <p>{{macHelpText}}</p>
-                <p><code>xattr -dr com.apple.quarantine /Applications/EnjoySing.app</code></p>
-              </details>
+            <article class="device" data-os="windows">
+              <div class="dev-icon">{{icon:windows}}</div>
+              <h3>Windows</h3>
+              <p class="sub">{{windowsSub}}</p>
+              <a class="btn primary" data-asset="windows" href="#" aria-disabled="true">{{btnSoon}}</a>
+              <p class="tip">{{windowsTip}}</p>
             </article>
-
-            <article class="card" data-os="linux">
-              <h3>{{icon:linux}} Linux</h3>
-              <p>{{linuxText}}</p>
-              <div class="links">
-                <a class="btn primary" data-asset="linux-appimage" href="#" aria-disabled="true">AppImage</a>
-                <a class="btn" data-asset="linux-deb" href="#" hidden>.deb</a>
-                <a class="btn" data-asset="linux-rpm" href="#" hidden>.rpm</a>
-              </div>
-              <a class="gh" data-gh="linux" href="https://github.com/{{repo}}/releases/latest">{{icon:github}} <span>{{githubLink}}</span></a>
-              <details>
-                <summary>{{linuxHelp}}</summary>
-                <p>{{linuxHelpText}}</p>
-                <p><code>chmod +x EnjoySing*.AppImage</code></p>
-              </details>
+            <article class="device" data-os="linux">
+              <div class="dev-icon">{{icon:linux}}</div>
+              <h3>Linux</h3>
+              <p class="sub">{{linuxSub}}</p>
+              <a class="btn primary" data-asset="linux" href="#" aria-disabled="true">{{btnSoon}}</a>
+              <p class="tip">{{linuxTip}}</p>
             </article>
-
-            <article class="card" data-os="web">
-              <h3>{{icon:web}} {{webTitle}} <span class="tag">{{webTag}}</span></h3>
-              <p>{{webText}}</p>
-              <div class="links">
-                <a class="btn primary" href="{{appUrl}}">{{webBtn}}</a>
-                <a class="btn" href="{{appUrl}}/enjoysing-helper.zip">🧩 {{extBtn}}</a>
-              </div>
-              <details>
-                <summary>{{extHow}}</summary>
-                <ol><li>{{extStep1}}</li><li>{{extStep2}}</li><li>{{extStep3}}</li></ol>
-              </details>
+            <article class="device" data-os="web">
+              <div class="dev-icon">{{icon:web}}</div>
+              <h3>{{webTitle}}</h3>
+              <p class="sub">{{webSub}}</p>
+              <a class="btn primary" href="{{appUrl}}">{{webBtn}}</a>
+              <p class="tip">{{webTip}}</p>
             </article>
           </div>
         </div>
       </section>
 
-      <!-- ------------------------------------------------------------ questions -->
-      <section class="section">
+      <!-- ============================================================ questions -->
+      <section class="faq-sec">
         <div class="wrap narrow">
-          <h2>{{faqTitle}}</h2>
+          <h2 class="display center">{{faqTitle}}</h2>
           <div class="faq">
             <details><summary>{{q1}}</summary><p>{{a1}}</p></details>
             <details><summary>{{q2}}</summary><p>{{a2}}</p></details>
             <details><summary>{{q3}}</summary><p>{{a3}}</p></details>
             <details><summary>{{q4}}</summary><p>{{a4}}</p></details>
+            <details><summary>{{q5}}</summary><p>{{a5}}</p></details>
           </div>
         </div>
       </section>
     </main>
 
     <footer class="footer">
-      <div class="wrap">
-        <p>
-          <span id="version-line">{{footerFree}}</span>
-          · <a id="all-files" href="https://github.com/{{repo}}/releases">{{footerAll}}</a>
-          · <a href="https://github.com/{{repo}}">{{madeWith}}</a>
-          · <a href="{{otherLangHref}}" data-lang-switch>{{otherLang}}</a>
-        </p>
+      <div class="wrap foot">
+        <a class="brand" href="{{path}}"><img src="/favicon.svg" alt="" width="24" height="24" /><span>Enjoy<b>Sing</b></span></a>
+        <p>{{footerTag}}</p>
+        <p class="links"><a href="{{appUrl}}">{{appHost}}</a> · <a href="{{otherLangHref}}" data-lang-switch>{{otherLang}}</a></p>
         <p class="muted">{{footerRights}}</p>
       </div>
     </footer>
